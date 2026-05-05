@@ -1,0 +1,32 @@
+Package: tsflow
+Title: Declarative Time Series Pipeline Specifications
+Version: 0.1.1
+Authors@R:
+    person("Merlin", "Scherer", email = "merlin.scherer@pm.me", role = c("aut", "cre"))
+Description: Parse and normalize declarative time series pipeline
+    specifications into canonical internal objects.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Imports:
+    cli,
+    yaml
+Depends:
+    R (>= 4.1.0)
+Suggests:
+    future,
+    future.apply,
+    htmltools,
+    htmlwidgets,
+    igraph,
+    knitr,
+    progressr,
+    rmarkdown,
+    tempdisagg,
+    testthat (>= 3.0.0),
+    visNetwork,
+    xts,
+    zoo
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0

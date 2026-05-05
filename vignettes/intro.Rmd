@@ -1,0 +1,267 @@
+---
+title: "Getting Started"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    collapse = TRUE,
+    comment = "#>"
+)
+```
+
+This vignette shows the smallest useful `tsflow` workflow:
+
+- define a pipeline in YAML
+- plan it
+- inspect the dependency DAG
+- execute it with injected inputs
+
+## Define A Pipeline
+
+Start with a small YAML pipeline that uses one raw input and two derived series.
+
+```{r}
+library(tsflow)
+
+pipeline_path <- tempfile(fileext = ".yml")
+
+writeLines(
+    c(
+        "vars:",
+        "  factor: 100",
+        "outputs:",
+        "  - growth_index",
+        "series:",
+        "  - name: raw_a",
+        "    source:",
+        "      type: injected",
+        "  - name: scaled_a",
+        "    steps:",
+        "      - input: raw_a",
+        "      - call:",
+        "          name: scale",
+        "          kwargs:",
+        "            factor:",
+        "              var: factor",
+        "  - name: growth_index",
+        "    steps:",
+        "      - input: scaled_a",
+        "      - call:",
+        "          name: add_constant",
+        "          args:",
+        "            - 5"
+    ),
+    con = pipeline_path
+)
+
+cat(paste(readLines(pipeline_path), collapse = "\n"))
+```
+
+## Define Transforms
+
+Transforms are ordinary R functions. `tsflow` resolves bare transform names from
+the `transform_env` that you pass to planning and execution.
+
+```{r}
+scale <- function(x, factor) {
+    x * factor
+}
+
+add_constant <- function(x, value) {
+    x + value
+}
+```
+
+## Plan The Pipeline
+
+Planning reads the file, validates it, and builds a dependency DAG.
+
+```{r}
+plan <- plan_pipeline(
+    path = pipeline_path,
+    transform_env = environment()
+)
+
+plan
+plan$dag$order
+dag_edges(plan$dag)
+```
+
+If `igraph` and `visNetwork` are installed, you can inspect the DAG as an
+interactive HTML widget.
+
+```{r, eval = requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+dag_to_visnetwork(plan)
+```
+
+The widget is useful for understanding dependency structure before you run the
+pipeline. Hovering a node shows the ordered pipe that produces it.
+
+## Advanced Debugging: Inspect A Cycle
+
+`build_dag()` is strict by default and fails when the dependency graph is not
+acyclic.
+
+```{r}
+cyclic_spec <- normalize_pipeline(list(
+    series = list(
+        list(
+            name = "series_a",
+            steps = list(
+                list(input = "series_b")
+            )
+        ),
+        list(
+            name = "series_b",
+            steps = list(
+                list(input = "series_a")
+            )
+        )
+    )
+))
+
+try(build_dag(cyclic_spec))
+```
+
+For debugging, you can opt in to retaining the graph, inspect the involved
+nodes, and render just that problematic subgraph.
+
+```{r}
+cyclic_dag <- build_dag(cyclic_spec, allow_cycles = TRUE)
+
+cyclic_dag$cycle_nodes
+dag_subgraph(cyclic_dag, nodes = cyclic_dag$cycle_nodes)
+```
+
+```{r, eval = requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+dag_to_visnetwork(cyclic_dag, nodes = cyclic_dag$cycle_nodes)
+```
+
+This keeps cycle detection explicit while still giving you a visual debugging
+path when a specification needs to be untangled.
+
+## Execute The Pipeline
+
+Raw inputs are injected at runtime as named `ts` objects.
+
+```{r}
+inputs <- list(
+    raw_a = stats::ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 4)
+)
+
+result <- execute_pipeline(
+    path = pipeline_path,
+    inputs = inputs,
+    transform_env = environment()
+)
+
+result$outputs$growth_index
+```
+
+You can also inspect the full executed state:
+
+```{r}
+names(result$values)
+result$values$scaled_a
+result$values$growth_index
+```
+
+## Advanced Debugging: Step Into One Node
+
+Sometimes a series is still too coarse as one DAG node and you want to inspect
+its calculation step by step. `expand_node_dag()` builds a small debugging view
+for one selected node.
+
+```{r}
+expanded <- expand_node_dag(plan, "growth_index")
+
+expanded$nodes
+expanded$edges
+```
+
+If `igraph` and `visNetwork` are installed, you can render that expanded node
+graph directly:
+
+```{r, eval = requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+dag_to_visnetwork(expanded)
+```
+
+This keeps the main DAG compact while still letting you inspect the ordered
+pipe inside one node when you need to debug or explain a calculation.
+
+## Advanced Debugging: Inspect A Failed Node Step By Step
+
+You can also replay the internal steps of one node against an executed result.
+This is useful when a series failed and you want to see which internal step
+failed and which later steps were never reached.
+
+```{r}
+explode <- function(x) {
+    stop("kaboom", call. = FALSE)
+}
+
+failing_path <- tempfile(fileext = ".yml")
+
+writeLines(
+    c(
+        "series:",
+        "  - name: raw_b",
+        "    source:",
+        "      type: injected",
+        "  - name: broken_series",
+        "    steps:",
+        "      - input: raw_b",
+        "      - call:",
+        "          name: scale",
+        "          args:",
+        "            - 10",
+        "      - call:",
+        "          name: explode",
+        "      - call:",
+        "          name: add_constant",
+        "          args:",
+        "            - 5"
+    ),
+    con = failing_path
+)
+
+failed_result <- suppressWarnings(execute_pipeline(
+    path = failing_path,
+    inputs = list(raw_b = stats::ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 4)),
+    transform_env = environment(),
+    error_mode = "collect",
+    progress = FALSE
+))
+
+expanded_failed <- expand_node_result(
+    failed_result,
+    "broken_series",
+    transform_env = environment()
+)
+
+expanded_failed$failed_step
+expanded_failed$errors
+expanded_failed$dag$node_status
+expanded_failed$values
+```
+
+The failed replay still captures the value of the successful internal step, and
+marks the failed step plus downstream internal steps in the expanded graph.
+
+```{r, eval = requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+dag_to_visnetwork(expanded_failed)
+```
+
+## Next Steps
+
+After the basic YAML workflow works, the next useful patterns are:
+
+- use CSV plus a sibling sidecar YAML file for spreadsheet-style authoring
+- save compiled YAML with `write_pipeline()`
+- inspect focused DAG subgraphs with `dag_to_visnetwork()`
+- step into one node with `expand_node_dag()`

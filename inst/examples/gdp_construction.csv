@@ -1,0 +1,5 @@
+name,input,step_1,step_2,unit
+gdp.nominal.quarterly,gdp.nominal.quarterly.sa,"jsa(gdp.nominal.annual.nsa, method=@jsa_method)",,
+construction.nominal.quarterly,construction.nominal.annual,"a2q_sum(gdp.nominal.quarterly, conversion=@conversion)",,div(1000000)
+construction.real.quarterly,construction.growth.annual,"real_gr_nom(construction.nominal.annual, base_year=@base_year)","a2q_sum(gdp.nominal.quarterly, conversion=@conversion)",
+construction.deflator.quarterly,construction.nominal.quarterly,div(construction.real.quarterly),,mul(100)

@@ -1,0 +1,238 @@
+---
+title: "GDP and Construction Pipeline Example"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{GDP and Construction Pipeline Example}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    collapse = TRUE,
+    comment = "#>"
+)
+
+has_runtime_pkgs <-
+    requireNamespace("tempdisagg", quietly = TRUE) &&
+        requireNamespace("zoo", quietly = TRUE)
+```
+
+This vignette shows the `tsflow` CSV workflow end to end:
+
+- define a pipeline in CSV
+- inspect it with `plan_pipeline()`
+- inspect the dependency DAG
+- execute it with injected `ts` inputs
+
+## Example Pipeline
+
+The package installs a small example mapping as CSV together with a sidecar
+metadata file. `tsflow` reads the CSV, merges the sibling metadata, and
+compiles the result into the same structured pipeline model used by the YAML
+format.
+
+```{r}
+example_path <- system.file("examples", "gdp_construction.csv", package = "tsflow")
+cat(paste(readLines(example_path), collapse = "\n"))
+```
+
+```{r}
+meta_path <- system.file("examples", "gdp_construction.meta.yml", package = "tsflow")
+cat(paste(readLines(meta_path), collapse = "\n"))
+```
+
+## Define Transforms
+
+This example uses real R functions with the same calling style that `tsflow`
+expects at execution time. They are defined in the vignette environment so they
+can be resolved by name during planning and execution.
+
+```{r, eval = has_runtime_pkgs}
+library(tsflow)
+
+jsa <- function(
+  ts_sa,
+  ts_nsa,
+  method = "uniform",
+  conversion = "sum"
+) {
+    ts_nsa_a <- tempdisagg::ta(ts_nsa, conversion = conversion, to = "annual")
+
+    if (method == "denton-cholette") {
+        return(tempdisagg::td(
+            ts_nsa_a ~ 0 + ts_sa,
+            method = "denton-cholette",
+            criterion = "additive",
+            h = 1
+        )$values)
+    }
+
+    tempdisagg::td(
+        ts_nsa_a ~ ts_sa,
+        conversion = conversion,
+        to = "quarterly",
+        method = method
+    )$values
+}
+
+real_gr_nom <- function(ts_gr, ts_nom, base_year) {
+    ts_gr <- zoo::na.trim(ts_gr)
+    if (frequency(ts_gr) < frequency(ts_nom)) {
+        ts_nom <- tempdisagg::ta(
+            ts_nom,
+            conversion = "sum",
+            to = frequency(ts_gr)
+        )
+    }
+
+    ts_real <- ts(
+        NA,
+        start = start(ts_gr) - c(1, 0),
+        end = end(ts_gr),
+        frequency = frequency(ts_gr)
+    )
+
+    base_year_value <- as.numeric(window(
+        ts_nom,
+        start = c(base_year, 1),
+        end = c(base_year, 1)
+    ))
+    window(ts_real, start = c(base_year, 1), end = c(base_year, 1)) <- base_year_value
+
+    product_up <- (ts_gr / 100 + 1)
+    if (base_year < end(ts_gr)[1]) {
+        up_vals <- as.numeric(window(product_up, start = c(base_year + 1, 1)))
+        window(ts_real, start = c(base_year + 1, 1)) <- base_year_value * cumprod(up_vals)
+    }
+
+    product_down <- 1 / product_up
+    if (base_year > start(ts_gr)[1]) {
+        down_vals <- as.numeric(window(product_down, end = c(base_year, 1)))
+        window(ts_real, end = c(base_year - 1, 1)) <- rev(base_year_value * cumprod(rev(down_vals)))
+    }
+
+    ts_real
+}
+
+a2q_sum <- function(ts_d, indicator, conversion = "sum") {
+    ts_d <- zoo::na.trim(ts_d)
+    indicator <- zoo::na.trim(indicator)
+
+    start_td <- max(stats::time(indicator)[1], stats::time(ts_d)[1])
+    end_td <- utils::tail(stats::time(indicator), 1)
+
+    indicator <- window(indicator, start = start_td, end = end_td)
+
+    if (any(!is.na(ts_d)) && any(!is.na(indicator))) {
+        return(tempdisagg::td(
+            ts_d ~ indicator,
+            conversion = conversion,
+            to = "quarterly",
+            method = "chow-lin-maxlog"
+        )$values)
+    }
+
+    tempdisagg::td(
+        ts_d ~ 1,
+        conversion = conversion,
+        to = "quarterly",
+        method = "denton-cholette"
+    )$values
+}
+```
+
+## Plan The Pipeline
+
+Plan the pipeline before running it:
+
+```{r, eval = has_runtime_pkgs}
+plan <- plan_pipeline(
+    path = example_path,
+    transform_env = environment()
+)
+
+plan
+plan$dag$order
+dag_edges(plan$dag, include_labels = TRUE)
+```
+
+If `igraph` and `visNetwork` are installed, you can inspect the DAG
+interactively in the HTML vignette:
+
+```{r, eval = has_runtime_pkgs && requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+dag_to_visnetwork(plan, upstream_of = "construction.deflator.quarterly")
+```
+
+## Execute The Pipeline
+
+Raw inputs are injected as named `ts` objects. The vignette uses a small
+packaged dataset for this step:
+
+```{r, eval = has_runtime_pkgs}
+data("gdp_construction_inputs", package = "tsflow")
+inputs <- gdp_construction_inputs
+
+result <- execute_pipeline(
+    path = example_path,
+    inputs = inputs,
+    transform_env = environment()
+)
+```
+
+`result$values` contains the full executed state. Because the example CSV does
+not define explicit outputs, `result$outputs` defaults to the derived series:
+
+```{r, eval = has_runtime_pkgs}
+names(result$outputs)
+result$outputs$gdp.nominal.quarterly
+result$outputs$construction.real.quarterly
+result$outputs$construction.deflator.quarterly
+```
+
+You can also recover the executed DAG and the full upstream calculation path for
+any result node:
+
+```{r, eval = has_runtime_pkgs}
+result$dag
+result_path(result, "construction.deflator.quarterly")
+result_subgraph(result, "construction.deflator.quarterly")
+```
+
+```{r, eval = has_runtime_pkgs && requireNamespace("igraph", quietly = TRUE) && requireNamespace("visNetwork", quietly = TRUE)}
+subgraph <- result_subgraph(result, "construction.real.quarterly")
+dag_to_visnetwork(result, nodes = subgraph$nodes)
+```
+
+You can also execute only the subgraph needed for one target:
+
+```{r, eval = has_runtime_pkgs}
+constr_nom_result <- execute_pipeline(
+    path = example_path,
+    inputs = inputs,
+    outputs = "construction.nominal.quarterly",
+    transform_env = environment()
+)
+
+constr_nom_result$plan$order
+names(constr_nom_result$values)
+constr_nom_result$outputs$construction.nominal.quarterly
+```
+
+On Linux, you can evaluate the same subgraph with a parallel `future` backend:
+
+```{r, eval = has_runtime_pkgs && .Platform$OS.type == "unix" && requireNamespace("future", quietly = TRUE) && requireNamespace("future.apply", quietly = TRUE)}
+oplan <- future::plan()
+on.exit(future::plan(oplan), add = TRUE)
+future::plan(future::multicore, workers = 2)
+
+output <- execute_pipeline(
+  path = example_path,
+  inputs = inputs,
+  outputs = "construction.nominal.quarterly",
+  transform_env = environment()
+)
+
+output$plan$order
+output$outputs$construction.nominal.quarterly
+```

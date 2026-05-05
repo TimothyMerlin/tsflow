@@ -1,0 +1,134 @@
+---
+title: "Pipeline Export Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Pipeline Export Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    collapse = TRUE,
+    comment = "#>"
+)
+```
+
+This vignette shows how to compile a spreadsheet-style pipeline into the
+canonical YAML form and then reuse that written YAML with the normal `tsflow`
+workflow.
+
+The pattern is:
+
+- read a CSV pipeline and its sidecar
+- write the parsed pipeline to YAML
+- plan from the written YAML
+- execute from the written YAML
+
+## Start From CSV
+
+This vignette uses a small temporary CSV pipeline together with a sibling
+sidecar.
+
+```{r}
+library(tsflow)
+
+dir <- tempfile()
+dir.create(dir)
+
+csv_path <- file.path(dir, "pipeline.csv")
+meta_path <- file.path(dir, "pipeline.meta.yml")
+
+writeLines(
+    c(
+        "name,input,step_1",
+        "derived_a,raw_a,\"scale(@factor)\""
+    ),
+    con = csv_path
+)
+writeLines(
+    c(
+        "vars:",
+        "  factor: 100",
+        "outputs:",
+        "  - derived_a"
+    ),
+    con = meta_path
+)
+
+cat(paste(readLines(csv_path), collapse = "\n"))
+```
+
+```{r}
+cat(paste(readLines(meta_path), collapse = "\n"))
+```
+
+`read_pipeline()` merges the CSV and sidecar into one in-memory pipeline object.
+
+```{r}
+parsed <- read_pipeline(csv_path)
+
+names(parsed)
+parsed$vars
+head(vapply(parsed$series, `[[`, character(1), "name"))
+```
+
+## Write Canonical YAML
+
+You can persist that parsed pipeline to disk with `write_pipeline()`.
+
+```{r}
+yaml_path <- tempfile(fileext = ".yml")
+write_pipeline(parsed, yaml_path)
+
+cat(paste(readLines(yaml_path), collapse = "\n"))
+```
+
+The written file is ordinary pipeline YAML, so it can be read again directly:
+
+```{r}
+reparsed <- read_pipeline(yaml_path)
+identical(reparsed, parsed)
+```
+
+## Plan From The Written YAML
+
+Planning works the same way as with the original CSV. The only difference is
+that the compiled YAML now contains the merged pipeline definition in one file.
+
+```{r}
+scale <- function(x, factor) {
+    x * factor
+}
+
+plan <- plan_pipeline(yaml_path, transform_env = environment())
+
+plan
+head(plan$dag$order)
+```
+
+## Execute From The Written YAML
+
+Execution also uses the same API. Once the YAML is written, it is just another
+pipeline definition file.
+
+```{r}
+inputs <- list(raw_a = stats::ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 4))
+
+result <- execute_pipeline(
+    path = yaml_path,
+    inputs = inputs,
+    transform_env = environment()
+)
+
+result$outputs$derived_a
+```
+
+## When This Is Useful
+
+Writing the parsed YAML is useful when you want to:
+
+- inspect the exact pipeline that `read_pipeline()` produced
+- diff compiled pipeline output in git
+- debug CSV translation issues
+- keep one canonical pipeline artifact on disk for later planning and execution
