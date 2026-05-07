@@ -1,0 +1,25 @@
+<urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
+<url><loc>/404.html</loc></url>
+<url><loc>/LICENSE-text.html</loc></url>
+<url><loc>/articles/gdp-construction.html</loc></url>
+<url><loc>/articles/index.html</loc></url>
+<url><loc>/articles/intro.html</loc></url>
+<url><loc>/articles/pipeline-export.html</loc></url>
+<url><loc>/authors.html</loc></url>
+<url><loc>/index.html</loc></url>
+<url><loc>/reference/build_dag.html</loc></url>
+<url><loc>/reference/evaluate_pipeline.html</loc></url>
+<url><loc>/reference/execute_pipeline.html</loc></url>
+<url><loc>/reference/extract_dependencies.html</loc></url>
+<url><loc>/reference/gdp_construction_inputs.html</loc></url>
+<url><loc>/reference/index.html</loc></url>
+<url><loc>/reference/normalize_pipeline.html</loc></url>
+<url><loc>/reference/plan_pipeline.html</loc></url>
+<url><loc>/reference/print.PipelinePlan.html</loc></url>
+<url><loc>/reference/read_pipeline.html</loc></url>
+<url><loc>/reference/resolve_transform.html</loc></url>
+<url><loc>/reference/result_helpers.html</loc></url>
+<url><loc>/reference/validate_pipeline.html</loc></url>
+<url><loc>/reference/write_pipeline.html</loc></url>
+</urlset>
+
