@@ -70,3 +70,13 @@ assert_inherits <- function(x, class_name, what) {
     fail(sprintf("%s must inherit from `%s`", what, class_name))
   }
 }
+
+as_pipeline_spec <- function(x) {
+  if (inherits(x, "PipelineSpec")) {
+    return(x)
+  }
+  if (inherits(x, c("PipelinePlan", "PipelineResult"))) {
+    return(x$pipeline)
+  }
+  fail("`x` must be a `PipelineSpec`, `PipelinePlan`, or `PipelineResult`")
+}
