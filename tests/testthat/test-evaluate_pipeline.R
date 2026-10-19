@@ -344,14 +344,15 @@ test_that("evaluate_pipeline validates requested outputs and raw inputs at runti
     "requested outputs are not present in the pipeline"
   )
 
-  expect_error(
-    evaluate_pipeline(
+  expect_warning(
+    missing_result <- evaluate_pipeline(
       pipeline = spec,
       inputs = list(),
       transforms = local_transforms()
     ),
-    "raw input `raw_a` is not available in `inputs`"
+    "missing: raw_a"
   )
+  expect_equal(missing_result$missing_inputs, "raw_a")
 
   expect_error(
     evaluate_pipeline(

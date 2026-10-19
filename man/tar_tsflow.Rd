@@ -10,7 +10,8 @@ tar_tsflow(
   hooks = list(),
   inputs = "tsflow_inputs",
   granularity = c("step", "series"),
-  outputs = NULL
+  outputs = NULL,
+  loaders = list()
 )
 }
 \arguments{
@@ -24,8 +25,9 @@ transforms are tracked.}
 [evaluate_pipeline()].}
 
 \item{inputs}{Name of a target holding a named list of raw series values,
-keyed by raw series name. Each raw series becomes its own target that
-extracts its value from this list.}
+keyed by raw series name, or `NULL` if all raw series come from loaders.
+Each raw series becomes its own target that takes its value from this
+list, or else from its loader.}
 
 \item{granularity}{`"step"` (default) creates one target per step, so a
 change only reruns the affected steps. `"series"` creates one target per
@@ -33,6 +35,12 @@ series, which has less overhead for large pipelines of cheap transforms.}
 
 \item{outputs}{Optional series names. When given, only targets needed to
 compute them are created.}
+
+\item{loaders}{A named list of functions that load raw series, keyed by
+`source` type; see [evaluate_pipeline()]. Targets of raw series with a
+loader rerun on every `tar_make()`, because `targets` can't see whether
+external data changed; steps downstream rerun only if the loaded value
+changed.}
 }
 \value{
 A list of target objects.
@@ -61,4 +69,9 @@ With `granularity = "step"`, the last step of a series is named
 
   Namespaced transforms such as `tempdisagg::td` record the package
   version, so updating the package reruns the steps that use it.
+
+  A raw series that neither `inputs` nor a loader provides (or whose loader
+  returns `NULL`) is a missing input. Its target and every target that
+  depends on it hold a `tsflow_missing_input` placeholder instead of a
+  value, so the rest of the pipeline still builds.
 }

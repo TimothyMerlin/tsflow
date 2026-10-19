@@ -7,31 +7,34 @@
 \usage{
 execute_pipeline(
   path,
-  inputs,
+  inputs = list(),
   outputs = NULL,
   transforms = list(),
   hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
   error_mode = c("fail", "collect"),
-  store = getOption("tsflow.store")
+  store = getOption("tsflow.store"),
+  loaders = list()
 )
 
 run_pipeline(
   path,
-  inputs,
+  inputs = list(),
   outputs = NULL,
   transforms = list(),
   hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
   error_mode = c("fail", "collect"),
-  store = getOption("tsflow.store")
+  store = getOption("tsflow.store"),
+  loaders = list()
 )
 }
 \arguments{
 \item{path}{Path to a pipeline definition file.}
 
-\item{inputs}{A named list of preloaded raw series values. For MVP these are
-expected to be R `ts` objects keyed by raw series name.}
+\item{inputs}{A named list of preloaded raw series values (`ts` or `xts`),
+keyed by raw series name. A series given here is used instead of its
+loader.}
 
 \item{outputs}{Optional output names to materialize. When `NULL`, pipeline
 outputs are used if present.}
@@ -55,6 +58,9 @@ the pipeline is run with `targets` (see [tar_tsflow()]) and only steps
 whose inputs, parameters or transforms changed are recomputed. Defaults to
 `getOption("tsflow.store")`, so `options(tsflow.store = "_tsflow_cache")`
 turns caching on for a whole script; `NULL` runs in memory as usual.}
+
+\item{loaders}{A named list of functions that load raw series, keyed by
+`source` type; see [evaluate_pipeline()].}
 }
 \value{
 A `PipelineResult` object.

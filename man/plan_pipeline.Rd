@@ -4,7 +4,13 @@
 \alias{plan_pipeline}
 \title{Plan a Pipeline Without Executing It}
 \usage{
-plan_pipeline(path, outputs = NULL, transforms = list(), allow_cycles = FALSE)
+plan_pipeline(
+  path,
+  outputs = NULL,
+  transforms = list(),
+  allow_cycles = FALSE,
+  loaders = list()
+)
 }
 \arguments{
 \item{path}{Path to a pipeline definition file.}
@@ -18,10 +24,14 @@ need to be registered.}
 
 \item{allow_cycles}{Whether to retain cycle nodes in the planned DAG instead
 of failing when a dependency cycle is detected.}
+
+\item{loaders}{A named list of functions that load raw series, keyed by
+`source` type; see [evaluate_pipeline()].}
 }
 \value{
 A `PipelinePlan` object containing the parsed input, normalized
-  pipeline, DAG plan, and planned outputs.
+  pipeline, DAG plan, planned outputs, and `needs_inputs`: the raw series
+  that have no loader and so must be passed via `inputs` when executing.
 }
 \description{
 Reads, normalizes, validates, and builds a DAG plan for a pipeline without

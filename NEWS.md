@@ -37,6 +37,19 @@
   of an operator, such as `a / (b + c)`, is not supported yet; define it as its
   own series instead (#22).
 
+* Raw series can be loaded from their `source` with `loaders`, a named list
+  of functions keyed by source type, in `evaluate_pipeline()`,
+  `execute_pipeline()`, `plan_pipeline()` and `tar_tsflow()`. A series in
+  `inputs` takes precedence over its loader, and `inputs` is now optional
+  (#11).
+
+* Missing raw inputs no longer stop a run: a raw series that neither `inputs`
+  nor a loader provides (or whose loader returns `NULL`) is skipped together
+  with everything depending on it, with a warning, in both error modes. They
+  are listed in `result$missing_inputs` and have status `"missing_input"`.
+  `plan_pipeline()` reports raw series without a loader in `needs_inputs`
+  (#11).
+
 ## Breaking changes
 
 * Transforms are now passed as an explicit registry instead of being looked up

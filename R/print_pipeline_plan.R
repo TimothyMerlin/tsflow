@@ -15,5 +15,9 @@ print.PipelinePlan <- function(x, ...) {
     cat(sprintf("  output names: %s\n", paste(x$outputs, collapse = ", ")))
   }
 
+  if (length(x$needs_inputs) > 0L) {
+    cat(sprintf("  needs `inputs` (no loader): %s\n", paste(x$needs_inputs, collapse = ", ")))
+  }
+
   invisible(x)
 }
