@@ -46,6 +46,34 @@ extract_dependencies <- function(expr) {
   ))
 }
 
+# Series referenced from call args/kwargs or op operands, as opposed to the
+# `input` a step chain starts from.
+extract_arg_dependencies <- function(expr) {
+  if (inherits(expr, c("RefNode", "LiteralNode"))) {
+    return(character())
+  }
+
+  if (inherits(expr, "CallNode")) {
+    return(unique(extract_dependencies(expr)))
+  }
+
+  if (inherits(expr, "PipeNode")) {
+    return(unique(c(
+      extract_arg_dependencies(expr$input),
+      extract_dependencies(expr$call)
+    )))
+  }
+
+  if (inherits(expr, "BinaryOpNode")) {
+    return(unique(c(
+      extract_arg_dependencies(expr$left),
+      extract_dependencies(expr$right)
+    )))
+  }
+
+  character()
+}
+
 collect_transform_names <- function(expr) {
   if (inherits(expr, c("RefNode", "LiteralNode"))) {
     return(character())

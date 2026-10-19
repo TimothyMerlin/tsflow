@@ -17,6 +17,11 @@ directly.}
 The input pipeline, invisibly, if validation succeeds.
 }
 \description{
-Validates duplicate names, cross-references, outputs, and transform
-resolvability for a normalized pipeline.
+Validates series names, duplicate names, cross-references, outputs, and
+transform resolvability for a normalized pipeline.
+}
+\details{
+Series names must be syntactically valid R names that start with a letter
+(letters, digits, `.` and `_`, not a reserved word) and must not contain
+`..`.
 }
