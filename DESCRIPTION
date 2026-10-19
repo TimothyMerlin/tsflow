@@ -22,6 +22,7 @@ Suggests:
     knitr,
     progressr,
     rmarkdown,
+    targets,
     tempdisagg,
     testthat (>= 3.0.0),
     visNetwork,
