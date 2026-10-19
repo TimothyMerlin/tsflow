@@ -13,6 +13,14 @@
   referenced so `targets` tracks changes per transform where possible, and
   updating a package used via `pkg::fn` reruns the steps that use it (#14).
 
+* `execute_pipeline()` gains `store` (default `getOption("tsflow.store")`) to
+  cache results between runs with `targets`, without writing a `_targets.R`.
+  `options(tsflow.store = "_tsflow_cache")` turns caching on for a whole
+  script; only steps whose inputs, parameters, transforms or the workspace
+  functions they use changed are recomputed, and `result$rebuilt` lists the
+  recomputed series. Each pipeline file gets its own subfolder of the store
+  (#24).
+
 * CSV step cells are now parsed with R's own parser (`str2lang()`) instead of
   a hand-written one. Existing cells read exactly as before, and cells can now
   use nested calls (`a2q_sum(jsa(raw_b), conversion = @c)`), arithmetic on

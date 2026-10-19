@@ -12,7 +12,8 @@ execute_pipeline(
   transforms = list(),
   hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
-  error_mode = c("fail", "collect")
+  error_mode = c("fail", "collect"),
+  store = getOption("tsflow.store")
 )
 
 run_pipeline(
@@ -22,7 +23,8 @@ run_pipeline(
   transforms = list(),
   hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
-  error_mode = c("fail", "collect")
+  error_mode = c("fail", "collect"),
+  store = getOption("tsflow.store")
 )
 }
 \arguments{
@@ -47,6 +49,12 @@ Defaults to `getOption("tsflow.progress", TRUE)`.}
 \item{error_mode}{Execution failure mode. `"fail"` stops on the first node
 error. `"collect"` continues evaluating unaffected nodes and returns
 node-level errors and skipped nodes in the result.}
+
+\item{store}{Optional directory for caching results between runs. When set,
+the pipeline is run with `targets` (see [tar_tsflow()]) and only steps
+whose inputs, parameters or transforms changed are recomputed. Defaults to
+`getOption("tsflow.store")`, so `options(tsflow.store = "_tsflow_cache")`
+turns caching on for a whole script; `NULL` runs in memory as usual.}
 }
 \value{
 A `PipelineResult` object.
@@ -55,4 +63,15 @@ A `PipelineResult` object.
 Convenience entry point that reads, normalizes, validates, and evaluates a
 pipeline from a YAML or CSV definition file. `run_pipeline()` is retained as
 a compatibility alias for `execute_pipeline()`.
+}
+\details{
+With `store`, each pipeline file gets its own subfolder of `store`
+  (named after the file), so pipelines that share series names don't
+  overwrite each other's results. Changes to transforms and to the
+  workspace functions and values they use are detected; changes inside
+  packages are detected through the package version. The result has the
+  usual structure plus `rebuilt`, the series recomputed in this run, and
+  `store`, the subfolder used. Two R processes must not use the same
+  `store` at the same time. Requires the `targets` and `codetools`
+  packages.
 }

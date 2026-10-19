@@ -19,6 +19,21 @@
 #' @param error_mode Execution failure mode. `"fail"` stops on the first node
 #'   error. `"collect"` continues evaluating unaffected nodes and returns
 #'   node-level errors and skipped nodes in the result.
+#' @param store Optional directory for caching results between runs. When set,
+#'   the pipeline is run with `targets` (see [tar_tsflow()]) and only steps
+#'   whose inputs, parameters or transforms changed are recomputed. Defaults to
+#'   `getOption("tsflow.store")`, so `options(tsflow.store = "_tsflow_cache")`
+#'   turns caching on for a whole script; `NULL` runs in memory as usual.
+#'
+#' @details With `store`, each pipeline file gets its own subfolder of `store`
+#'   (named after the file), so pipelines that share series names don't
+#'   overwrite each other's results. Changes to transforms and to the
+#'   workspace functions and values they use are detected; changes inside
+#'   packages are detected through the package version. The result has the
+#'   usual structure plus `rebuilt`, the series recomputed in this run, and
+#'   `store`, the subfolder used. Two R processes must not use the same
+#'   `store` at the same time. Requires the `targets` and `codetools`
+#'   packages.
 #'
 #' @return A `PipelineResult` object.
 #' @export
@@ -28,8 +43,23 @@ execute_pipeline <- function(path,
                              transforms = list(),
                              hooks = list(),
                              progress = getOption("tsflow.progress", TRUE),
-                             error_mode = c("fail", "collect")) {
+                             error_mode = c("fail", "collect"),
+                             store = getOption("tsflow.store")) {
   error_mode <- match.arg(error_mode)
+
+  if (!is.null(store)) {
+    return(execute_pipeline_cached(
+      path = path,
+      inputs = inputs,
+      outputs = outputs,
+      transforms = transforms,
+      hooks = hooks,
+      progress = progress,
+      error_mode = error_mode,
+      store = store
+    ))
+  }
+
   parsed <- read_pipeline(path)
   pipeline <- normalize_pipeline(parsed)
 
@@ -52,7 +82,8 @@ run_pipeline <- function(path,
                          transforms = list(),
                          hooks = list(),
                          progress = getOption("tsflow.progress", TRUE),
-                         error_mode = c("fail", "collect")) {
+                         error_mode = c("fail", "collect"),
+                         store = getOption("tsflow.store")) {
   error_mode <- match.arg(error_mode)
   execute_pipeline(
     path = path,
@@ -61,6 +92,7 @@ run_pipeline <- function(path,
     transforms = transforms,
     hooks = hooks,
     progress = progress,
-    error_mode = error_mode
+    error_mode = error_mode,
+    store = store
   )
 }
