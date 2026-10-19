@@ -11,14 +11,19 @@
 #'   need to be registered.
 #' @param allow_cycles Whether to retain cycle nodes in the planned DAG instead
 #'   of failing when a dependency cycle is detected.
+#' @param loaders A named list of functions that load raw series, keyed by
+#'   `source` type; see [evaluate_pipeline()].
 #'
 #' @return A `PipelinePlan` object containing the parsed input, normalized
-#'   pipeline, DAG plan, and planned outputs.
+#'   pipeline, DAG plan, planned outputs, and `needs_inputs`: the raw series
+#'   that have no loader and so must be passed via `inputs` when executing.
 #' @export
 plan_pipeline <- function(path,
                           outputs = NULL,
                           transforms = list(),
-                          allow_cycles = FALSE) {
+                          allow_cycles = FALSE,
+                          loaders = list()) {
+  assert_loaders(loaders)
   parsed <- read_pipeline(path)
   pipeline <- normalize_pipeline(parsed)
   dag <- build_dag(
@@ -45,7 +50,8 @@ plan_pipeline <- function(path,
       parsed = parsed,
       pipeline = pipeline,
       dag = dag,
-      outputs = unique(planned_outputs)
+      outputs = unique(planned_outputs),
+      needs_inputs = unavailable_raw_series(pipeline$series, inputs = list(), loaders = loaders)
     ),
     class = c("PipelinePlan", "tsflow_spec")
   )

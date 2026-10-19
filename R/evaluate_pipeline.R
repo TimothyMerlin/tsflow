@@ -4,8 +4,9 @@
 #' inputs and direct R function resolution.
 #'
 #' @param pipeline A `PipelineSpec` object.
-#' @param inputs A named list of preloaded raw series values. Raw inputs may be
-#'   R `ts` or `xts` objects keyed by raw series name.
+#' @param inputs A named list of preloaded raw series values (`ts` or `xts`),
+#'   keyed by raw series name. A series given here is used instead of its
+#'   loader.
 #' @param outputs Optional output names to materialize. When provided, execution
 #'   is pruned to the upstream subgraph required to compute those outputs.
 #' @param transforms A named list of functions used to resolve bare transform
@@ -18,11 +19,24 @@
 #' @param error_mode Execution failure mode. `"fail"` stops on the first node
 #'   error. `"collect"` continues evaluating unaffected nodes, records node-level
 #'   failures, and skips downstream nodes whose dependencies failed.
+#' @param loaders A named list of functions that load raw series, keyed by
+#'   `source` type. Each is called as `loader(source, name)`, where `source` is
+#'   the series' `source` entry without `type`, and returns a `ts` or `xts`
+#'   object, or `NULL` when the data is not available.
 #'
 #' @return A `PipelineResult` object containing the DAG plan, all computed
 #'   values, the materialized outputs, and optional error metadata.
 #'
-#' @details Transform names may be authored either as namespaced references
+#' @details A raw series comes from `inputs` if it is there, otherwise from the
+#'   loader for its `source` type. If neither provides it, or the loader
+#'   returns `NULL`, the series is a missing input: it and every series that
+#'   depends on it are skipped with a warning, and the rest of the pipeline
+#'   still runs, in both error modes. Missing series are listed in
+#'   `result$missing_inputs` and have status `"missing_input"` in
+#'   `result$dag$node_status`. A loader that throws an error is a failure like
+#'   any other step.
+#'
+#'   Transform names may be authored either as namespaced references
 #'   such as `stats::lag` or as bare names registered in `transforms`, e.g.
 #'   `transforms = list(scale = scale)`.
 #'
@@ -38,14 +52,16 @@
 #'
 #' @export
 evaluate_pipeline <- function(pipeline,
-                              inputs,
+                              inputs = list(),
                               outputs = pipeline$outputs %||% NULL,
                               transforms = list(),
                               hooks = list(),
                               progress = getOption("tsflow.progress", TRUE),
-                              error_mode = c("fail", "collect")) {
+                              error_mode = c("fail", "collect"),
+                              loaders = list()) {
   error_mode <- match.arg(error_mode)
   runtime <- new_runtime(transforms = transforms, hooks = hooks)
+  assert_loaders(loaders)
   dag <- build_dag(pipeline, transforms = transforms)
 
   if (!is.null(outputs)) {
@@ -63,26 +79,50 @@ evaluate_pipeline <- function(pipeline,
   }
 
   execution_dag <- prune_execution_dag(dag, outputs = outputs)
-  values <- stats::setNames(vector("list", length(execution_dag$nodes)), execution_dag$nodes)
   series_map <- stats::setNames(pipeline$series, vapply(pipeline$series, `[[`, character(1), "name"))
 
-  execution_result <- run_with_execution_progress(
-    execution_dag = execution_dag,
-    values = values,
-    series_map = series_map,
-    inputs = inputs,
-    runtime = runtime,
-    progress = progress,
-    error_mode = error_mode
+  # Load raw series first. Missing ones (and load failures in "collect" mode)
+  # are left out together with everything downstream; the rest still runs.
+  raw_nodes <- execution_dag$order[execution_dag$node_kind[execution_dag$order] == "raw"]
+  loaded <- load_raw_inputs(raw_nodes, series_map, inputs, loaders)
+  if (identical(error_mode, "fail") && length(loaded$errors) > 0L) {
+    fail(sprintf(
+      "failed while evaluating series `%s`: %s",
+      names(loaded$errors)[[1L]],
+      loaded$errors[[1L]]
+    ))
+  }
+
+  unavailable <- c(loaded$missing, names(loaded$errors))
+  blocked <- setdiff(
+    unique(unlist(lapply(unavailable, downstream_nodes, dag = execution_dag))),
+    unavailable
   )
+  run_nodes <- setdiff(execution_dag$order, c(unavailable, blocked))
+
+  execution_result <- list(values = list(), errors = list(), skipped = character())
+  if (length(run_nodes) > 0L) {
+    run_dag <- prune_execution_dag(execution_dag, outputs = run_nodes)
+    execution_result <- run_with_execution_progress(
+      execution_dag = run_dag,
+      values = stats::setNames(vector("list", length(run_dag$nodes)), run_dag$nodes),
+      series_map = series_map,
+      inputs = loaded$values,
+      runtime = runtime,
+      progress = progress,
+      error_mode = error_mode
+    )
+  }
+
   new_pipeline_result(
     pipeline = pipeline,
     execution_dag = execution_dag,
     values = execution_result$values,
     outputs = outputs,
-    errors = execution_result$errors,
-    skipped = execution_result$skipped,
-    error_mode = error_mode
+    errors = c(loaded$errors, execution_result$errors),
+    skipped = order_nodes(execution_dag, c(blocked, execution_result$skipped)),
+    error_mode = error_mode,
+    missing_inputs = loaded$missing
   )
 }
 
@@ -94,7 +134,24 @@ new_pipeline_result <- function(pipeline,
                                 errors,
                                 skipped,
                                 error_mode,
+                                missing_inputs = character(),
                                 extra = list()) {
+  # Missing inputs never stop a run, so always say what was left out.
+  if (length(missing_inputs) > 0L) {
+    missing_skipped <- intersect(
+      skipped,
+      unique(unlist(lapply(missing_inputs, downstream_nodes, dag = execution_dag)))
+    )
+    lines <- c(
+      "Some raw inputs are missing; they and the series depending on them were skipped",
+      "x" = paste("missing:", paste(missing_inputs, collapse = ", "))
+    )
+    if (length(missing_skipped) > 0L) {
+      lines <- c(lines, "i" = paste("skipped:", paste(missing_skipped, collapse = ", ")))
+    }
+    warn(lines)
+  }
+
   if (identical(error_mode, "collect") && length(errors) > 0L) {
     lines <- c(
       "Some pipeline nodes failed during execution",
@@ -119,11 +176,17 @@ new_pipeline_result <- function(pipeline,
       list(
         pipeline = pipeline,
         plan = execution_dag,
-        dag = annotate_result_dag(dag = execution_dag, errors = errors, skipped = skipped),
+        dag = annotate_result_dag(
+          dag = execution_dag,
+          errors = errors,
+          skipped = skipped,
+          missing_inputs = missing_inputs
+        ),
         values = values,
         outputs = values[available_outputs],
         errors = errors,
         skipped = skipped,
+        missing_inputs = missing_inputs,
         error_mode = error_mode
       ),
       extra
@@ -132,7 +195,7 @@ new_pipeline_result <- function(pipeline,
   )
 }
 
-annotate_result_dag <- function(dag, errors = list(), skipped = character()) {
+annotate_result_dag <- function(dag, errors = list(), skipped = character(), missing_inputs = character()) {
   assert_inherits(dag, "DAGPlan", "dag")
 
   node_status <- stats::setNames(rep("ok", length(dag$nodes)), dag$nodes)
@@ -144,6 +207,9 @@ annotate_result_dag <- function(dag, errors = list(), skipped = character()) {
   }
   if (length(skipped_nodes) > 0L) {
     node_status[skipped_nodes] <- "skipped"
+  }
+  if (length(missing_inputs) > 0L) {
+    node_status[missing_inputs] <- "missing_input"
   }
 
   dag$node_status <- node_status

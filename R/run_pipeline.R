@@ -5,8 +5,11 @@
 #' a compatibility alias for `execute_pipeline()`.
 #'
 #' @param path Path to a pipeline definition file.
-#' @param inputs A named list of preloaded raw series values. For MVP these are
-#'   expected to be R `ts` objects keyed by raw series name.
+#' @param inputs A named list of preloaded raw series values (`ts` or `xts`),
+#'   keyed by raw series name. A series given here is used instead of its
+#'   loader.
+#' @param loaders A named list of functions that load raw series, keyed by
+#'   `source` type; see [evaluate_pipeline()].
 #' @param outputs Optional output names to materialize. When `NULL`, pipeline
 #'   outputs are used if present.
 #' @param transforms A named list of functions used to resolve bare transform
@@ -38,13 +41,14 @@
 #' @return A `PipelineResult` object.
 #' @export
 execute_pipeline <- function(path,
-                             inputs,
+                             inputs = list(),
                              outputs = NULL,
                              transforms = list(),
                              hooks = list(),
                              progress = getOption("tsflow.progress", TRUE),
                              error_mode = c("fail", "collect"),
-                             store = getOption("tsflow.store")) {
+                             store = getOption("tsflow.store"),
+                             loaders = list()) {
   error_mode <- match.arg(error_mode)
 
   if (!is.null(store)) {
@@ -56,7 +60,8 @@ execute_pipeline <- function(path,
       hooks = hooks,
       progress = progress,
       error_mode = error_mode,
-      store = store
+      store = store,
+      loaders = loaders
     ))
   }
 
@@ -70,20 +75,22 @@ execute_pipeline <- function(path,
     transforms = transforms,
     hooks = hooks,
     progress = progress,
-    error_mode = error_mode
+    error_mode = error_mode,
+    loaders = loaders
   )
 }
 
 #' @rdname execute_pipeline
 #' @export
 run_pipeline <- function(path,
-                         inputs,
+                         inputs = list(),
                          outputs = NULL,
                          transforms = list(),
                          hooks = list(),
                          progress = getOption("tsflow.progress", TRUE),
                          error_mode = c("fail", "collect"),
-                         store = getOption("tsflow.store")) {
+                         store = getOption("tsflow.store"),
+                         loaders = list()) {
   error_mode <- match.arg(error_mode)
   execute_pipeline(
     path = path,
@@ -93,6 +100,7 @@ run_pipeline <- function(path,
     hooks = hooks,
     progress = progress,
     error_mode = error_mode,
-    store = store
+    store = store,
+    loaders = loaders
   )
 }

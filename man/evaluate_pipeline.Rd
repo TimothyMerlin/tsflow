@@ -6,19 +6,21 @@
 \usage{
 evaluate_pipeline(
   pipeline,
-  inputs,
+  inputs = list(),
   outputs = pipeline$outputs \%||\% NULL,
   transforms = list(),
   hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
-  error_mode = c("fail", "collect")
+  error_mode = c("fail", "collect"),
+  loaders = list()
 )
 }
 \arguments{
 \item{pipeline}{A `PipelineSpec` object.}
 
-\item{inputs}{A named list of preloaded raw series values. Raw inputs may be
-R `ts` or `xts` objects keyed by raw series name.}
+\item{inputs}{A named list of preloaded raw series values (`ts` or `xts`),
+keyed by raw series name. A series given here is used instead of its
+loader.}
 
 \item{outputs}{Optional output names to materialize. When provided, execution
 is pruned to the upstream subgraph required to compute those outputs.}
@@ -36,6 +38,11 @@ Defaults to `getOption("tsflow.progress", TRUE)`.}
 \item{error_mode}{Execution failure mode. `"fail"` stops on the first node
 error. `"collect"` continues evaluating unaffected nodes, records node-level
 failures, and skips downstream nodes whose dependencies failed.}
+
+\item{loaders}{A named list of functions that load raw series, keyed by
+`source` type. Each is called as `loader(source, name)`, where `source` is
+the series' `source` entry without `type`, and returns a `ts` or `xts`
+object, or `NULL` when the data is not available.}
 }
 \value{
 A `PipelineResult` object containing the DAG plan, all computed
@@ -46,7 +53,16 @@ Evaluates a normalized pipeline in topological order using preloaded raw
 inputs and direct R function resolution.
 }
 \details{
-Transform names may be authored either as namespaced references
+A raw series comes from `inputs` if it is there, otherwise from the
+  loader for its `source` type. If neither provides it, or the loader
+  returns `NULL`, the series is a missing input: it and every series that
+  depends on it are skipped with a warning, and the rest of the pipeline
+  still runs, in both error modes. Missing series are listed in
+  `result$missing_inputs` and have status `"missing_input"` in
+  `result$dag$node_status`. A loader that throws an error is a failure like
+  any other step.
+
+  Transform names may be authored either as namespaced references
   such as `stats::lag` or as bare names registered in `transforms`, e.g.
   `transforms = list(scale = scale)`.
 

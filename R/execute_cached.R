@@ -8,7 +8,8 @@ execute_pipeline_cached <- function(path,
                                     hooks,
                                     progress,
                                     error_mode,
-                                    store) {
+                                    store,
+                                    loaders = list()) {
   for (pkg in c("targets", "codetools")) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
       fail(sprintf("package `%s` is required for `execute_pipeline(store = ...)`", pkg))
@@ -23,6 +24,7 @@ execute_pipeline_cached <- function(path,
 
   # Validate everything up front so errors read as they do without `store`.
   new_runtime(transforms = transforms, hooks = hooks)
+  assert_loaders(loaders)
   pipeline <- normalize_pipeline(read_pipeline(path))
   outputs <- outputs %||% pipeline$outputs %||% NULL
   dag <- build_dag(pipeline, transforms = transforms)
@@ -46,11 +48,11 @@ execute_pipeline_cached <- function(path,
   # restore the caller's value afterwards.
   previous_error_option <- targets::tar_option_get("error")
   on.exit(targets::tar_option_set(error = previous_error_option), add = TRUE)
-  envir <- cached_pipeline_envir(inputs, transforms, hooks)
+  envir <- cached_pipeline_envir(inputs, transforms, hooks, loaders)
   script <- tempfile(fileext = ".R")
   on.exit(unlink(script), add = TRUE)
   writeLines(
-    cached_pipeline_script(path, transforms, hooks, outputs, error_mode),
+    cached_pipeline_script(path, transforms, hooks, outputs, error_mode, loaders),
     script
   )
 
@@ -107,6 +109,14 @@ execute_pipeline_cached <- function(path,
     ok_series
   )
 
+  # Missing-input placeholders: raw ones are the missing inputs, derived ones
+  # were skipped because of them.
+  placeholder <- vapply(values, is_missing_input, logical(1))
+  raw_series <- execution_dag$order[execution_dag$node_kind[execution_dag$order] == "raw"]
+  missing_inputs <- intersect(names(values)[placeholder], raw_series)
+  skipped <- order_nodes(execution_dag, c(skipped, setdiff(names(values)[placeholder], raw_series)))
+  values <- values[!placeholder]
+
   # Raw series re-extract whenever the inputs list changes, so `rebuilt`
   # reports derived series only.
   completed <- progress_table$name[progress_table$progress == "completed"]
@@ -121,6 +131,7 @@ execute_pipeline_cached <- function(path,
     errors = errors,
     skipped = skipped,
     error_mode = error_mode,
+    missing_inputs = missing_inputs,
     extra = list(rebuilt = rebuilt, store = pipeline_store)
   )
 }
@@ -146,7 +157,7 @@ target_series_name <- function(target_names) {
 # Private environment the generated targets script runs in: inputs,
 # transforms, hooks, and every workspace function or value they use (followed
 # recursively), so targets notices changes to helpers as well as transforms.
-cached_pipeline_envir <- function(inputs, transforms, hooks) {
+cached_pipeline_envir <- function(inputs, transforms, hooks, loaders = list()) {
   envir <- new.env(parent = globalenv())
   envir$tsflow_inputs_value <- inputs
 
@@ -156,8 +167,11 @@ cached_pipeline_envir <- function(inputs, transforms, hooks) {
   for (name in names(hooks)) {
     assign(paste0("tsflow_hook_", name), hooks[[name]], envir = envir)
   }
+  for (name in names(loaders)) {
+    assign(loader_var_name(name), loaders[[name]], envir = envir)
+  }
 
-  pending <- c(unname(transforms), unname(hooks))
+  pending <- c(unname(transforms), unname(hooks), unname(loaders))
   seen <- character()
   while (length(pending) > 0L) {
     fn <- pending[[1L]]
@@ -204,13 +218,17 @@ is_workspace_env <- function(envir) {
     !startsWith(environmentName(envir), "package:")
 }
 
-cached_pipeline_script <- function(path, transforms, hooks, outputs, error_mode) {
+cached_pipeline_script <- function(path, transforms, hooks, outputs, error_mode, loaders = list()) {
   transform_list <- paste(
     sprintf("%s = %s", vapply(names(transforms), quote_name, character(1)), vapply(names(transforms), quote_name, character(1))),
     collapse = ", "
   )
   hook_list <- paste(
     sprintf("%s = tsflow_hook_%s", names(hooks), names(hooks)),
+    collapse = ", "
+  )
+  loader_list <- paste(
+    sprintf("%s = %s", vapply(names(loaders), quote_name, character(1)), vapply(names(loaders), loader_var_name, character(1))),
     collapse = ", "
   )
 
@@ -225,10 +243,15 @@ cached_pipeline_script <- function(path, transforms, hooks, outputs, error_mode)
     sprintf("    %s,", deparse(normalizePath(path, mustWork = TRUE))),
     sprintf("    transforms = list(%s),", transform_list),
     sprintf("    hooks = list(%s),", hook_list),
+    sprintf("    loaders = list(%s),", loader_list),
     sprintf("    outputs = %s", paste(deparse(outputs), collapse = "")),
     "  )",
     ")"
   )
+}
+
+loader_var_name <- function(type) {
+  paste0("tsflow_loader_", make.names(type))
 }
 
 quote_name <- function(name) {

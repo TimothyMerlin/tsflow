@@ -111,6 +111,34 @@ functions such as `stats::lag`. Bare names must be registered in the
 namespace. To restrict which packages a pipeline may call, set
 `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 
+## Loading Raw Data
+
+Instead of passing every raw series through `inputs`, a series' `source` can
+say where its data comes from, and a loader for that source type fetches it:
+
+```yaml
+series:
+  - name: gdp.nominal.annual
+    source: {type: csv, file: data/gdp.csv, column: nominal}
+```
+
+```r
+loaders <- list(
+  csv = function(source, name) read_my_csv(source$file, source$column)
+)
+
+result <- execute_pipeline("gdp.yml", loaders = loaders, transforms = transforms)
+```
+
+A loader is called with the series' `source` entry (without `type`) and its
+name, and returns a `ts` or `xts`. A series in `inputs` is used instead of its
+loader. If a raw series has no loader and is not in `inputs`, or its loader
+returns `NULL`, it is a missing input: it and everything depending on it are
+skipped with a warning, and the rest still runs (`result$missing_inputs`). A
+loader that throws an error is a failure like any other step.
+`plan_pipeline(loaders = ...)$needs_inputs` lists the raw series without a
+loader.
+
 ## Caching Results
 
 To keep results between runs and recompute only what changed, give

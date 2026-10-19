@@ -12,8 +12,14 @@
 #' @param hooks Optional named list of evaluation hooks; see
 #'   [evaluate_pipeline()].
 #' @param inputs Name of a target holding a named list of raw series values,
-#'   keyed by raw series name. Each raw series becomes its own target that
-#'   extracts its value from this list.
+#'   keyed by raw series name, or `NULL` if all raw series come from loaders.
+#'   Each raw series becomes its own target that takes its value from this
+#'   list, or else from its loader.
+#' @param loaders A named list of functions that load raw series, keyed by
+#'   `source` type; see [evaluate_pipeline()]. Targets of raw series with a
+#'   loader rerun on every `tar_make()`, because `targets` can't see whether
+#'   external data changed; steps downstream rerun only if the loaded value
+#'   changed.
 #' @param granularity `"step"` (default) creates one target per step, so a
 #'   change only reruns the affected steps. `"series"` creates one target per
 #'   series, which has less overhead for large pipelines of cheap transforms.
@@ -38,6 +44,11 @@
 #'   Namespaced transforms such as `tempdisagg::td` record the package
 #'   version, so updating the package reruns the steps that use it.
 #'
+#'   A raw series that neither `inputs` nor a loader provides (or whose loader
+#'   returns `NULL`) is a missing input. Its target and every target that
+#'   depends on it hold a `tsflow_missing_input` placeholder instead of a
+#'   value, so the rest of the pipeline still builds.
+#'
 #' @return A list of target objects.
 #' @export
 tar_tsflow <- function(path,
@@ -45,20 +56,22 @@ tar_tsflow <- function(path,
                        hooks = list(),
                        inputs = "tsflow_inputs",
                        granularity = c("step", "series"),
-                       outputs = NULL) {
+                       outputs = NULL,
+                       loaders = list()) {
   if (!requireNamespace("targets", quietly = TRUE)) {
     fail("package `targets` is required for `tar_tsflow()`")
   }
   granularity <- match.arg(granularity)
-  if (!is_scalar_string(inputs) || !is_syntactic_name(inputs)) {
-    fail("`inputs` must be the name of a target, as a single string")
+  if (!is.null(inputs) && (!is_scalar_string(inputs) || !is_syntactic_name(inputs))) {
+    fail("`inputs` must be the name of a target, as a single string, or NULL")
   }
 
   runtime <- new_runtime(transforms = transforms, hooks = hooks)
+  assert_loaders(loaders)
   pipeline <- normalize_pipeline(read_pipeline(path))
   dag <- build_dag(pipeline, transforms = transforms)
 
-  if (inputs %in% dag$nodes) {
+  if (!is.null(inputs) && inputs %in% dag$nodes) {
     fail(sprintf("`inputs` target `%s` has the same name as a series", inputs))
   }
 
@@ -74,16 +87,14 @@ tar_tsflow <- function(path,
 
   envir <- targets::tar_option_get("envir")
   transform_refs <- tar_transform_refs(transforms, substitute(transforms), envir)
-  hook_refs <- tar_hook_refs(hooks, substitute(hooks))
+  hook_refs <- tar_list_refs(hooks, substitute(hooks))
+  loader_refs <- tar_list_refs(loaders, substitute(loaders))
   series_map <- stats::setNames(pipeline$series, vapply(pipeline$series, `[[`, character(1), "name"))
 
   targets_list <- lapply(nodes, function(name) {
     series <- series_map[[name]]
     if (identical(series$kind, "raw")) {
-      return(list(targets::tar_target_raw(
-        name,
-        bquote(.(tsflow_internal("tar_tsflow_input"))(.(as.name(inputs)), .(name)))
-      )))
+      return(list(tar_raw_target(name, series$source, inputs, loader_refs)))
     }
 
     if (identical(granularity, "series")) {
@@ -106,15 +117,58 @@ tsflow_internal <- function(fn) {
   call(":::", as.name("tsflow"), as.name(fn))
 }
 
-tar_tsflow_input <- function(inputs, name) {
-  resolve_input_series(name, inputs)
+# A raw series target: from `inputs` if present, else its loader. Loaders
+# read external data targets can't see, so those targets always rerun;
+# downstream steps still only rerun when the loaded value changed.
+tar_raw_target <- function(name, source, inputs, loader_refs) {
+  loader_ref <- loader_refs[[source$type]]
+  command <- bquote(.(tsflow_internal("tar_tsflow_raw"))(
+    inputs = .(if (is.null(inputs)) NULL else as.name(inputs)),
+    name = .(name),
+    source = .(source$config),
+    type = .(source$type),
+    loader = .(loader_ref)
+  ))
+  cue <- if (is.null(loader_ref)) targets::tar_cue() else targets::tar_cue(mode = "always")
+  targets::tar_target_raw(name, command, cue = cue)
+}
+
+tar_tsflow_raw <- function(inputs, name, source, type, loader) {
+  loaders <- if (is.null(loader)) list() else stats::setNames(list(loader), type)
+  series <- list(name = name, source = list(type = type, config = source))
+  loaded <- load_raw_series(series, inputs %||% list(), loaders)
+
+  if (identical(loaded$status, "error")) {
+    fail(loaded$error)
+  }
+  if (identical(loaded$status, "missing")) {
+    return(new_missing_input(name))
+  }
+  loaded$value
+}
+
+# A missing input placeholder if any of `values` is one, else NULL.
+tar_missing_from <- function(values) {
+  missing <- Filter(is_missing_input, values)
+  if (length(missing) == 0L) {
+    return(NULL)
+  }
+  new_missing_input(unlist(lapply(missing, `[[`, "names"), use.names = FALSE))
 }
 
 tar_tsflow_series <- function(expression, values, transforms, hooks, packages = NULL) {
+  missing <- tar_missing_from(values)
+  if (!is.null(missing)) {
+    return(missing)
+  }
   evaluate_expr(expression, values = values, runtime = new_runtime(transforms, hooks))
 }
 
 tar_tsflow_step <- function(step, input, values, transforms, hooks, packages = NULL) {
+  missing <- tar_missing_from(c(list(input), values))
+  if (!is.null(missing)) {
+    return(missing)
+  }
   runtime <- new_runtime(transforms, hooks)
 
   if (identical(step$type, "call")) {
@@ -229,16 +283,21 @@ tar_transform_refs <- function(transforms, transforms_expr, envir) {
   refs
 }
 
-tar_hook_refs <- function(hooks, hooks_expr) {
-  if (length(hooks) == 0L) {
+# Expressions referring to each entry of `hooks` / `loaders`: the element
+# expressions when written inline as `list(...)`, else `<expr>[["name"]]`.
+tar_list_refs <- function(entries, entries_expr) {
+  if (length(entries) == 0L) {
     return(list())
   }
 
-  if (is.call(hooks_expr) && identical(hooks_expr[[1L]], as.name("list"))) {
-    return(as.list(hooks_expr)[-1L][names(hooks)])
+  if (is.call(entries_expr) && identical(entries_expr[[1L]], as.name("list"))) {
+    return(as.list(entries_expr)[-1L][names(entries)])
   }
 
-  stats::setNames(lapply(names(hooks), function(name) bquote(.(hooks_expr)[[.(name)]])), names(hooks))
+  stats::setNames(
+    lapply(names(entries), function(name) bquote(.(entries_expr)[[.(name)]])),
+    names(entries)
+  )
 }
 
 # Package versions for namespaced transforms, embedded in the command so a

@@ -133,12 +133,12 @@ test_that("run_pipeline surfaces normalization and execution failures", {
     con = missing_input_path
   )
 
-  expect_error(
+  expect_warning(
     run_pipeline(
       path = missing_input_path,
       inputs = list()
     ),
-    "raw input `raw_a` is not available in `inputs`"
+    "missing: raw_a"
   )
 })
 
