@@ -316,44 +316,28 @@ evaluate_execution_nodes <- function(execution_dag,
   errors <- list()
   skipped <- character()
 
-  for (batch in execution_batches(execution_dag)) {
-    if (identical(error_mode, "collect")) {
-      batch_results <- evaluate_execution_batch_collecting(
-        batch = batch,
-        execution_dag = execution_dag,
-        values = values,
-        series_map = series_map,
-        inputs = inputs,
-        runtime = runtime
-      )
-
-      for (name in batch) {
-        item <- batch_results[[name]]
-
-        if (identical(item$status, "ok")) {
-          values[[name]] <- item$value
-          tick(name)
-        } else if (identical(item$status, "error")) {
-          errors[[name]] <- item$error
-        } else if (identical(item$status, "skipped")) {
-          skipped <- c(skipped, name)
-        }
-      }
-
-      next
-    }
-
-    batch_results <- evaluate_execution_batch(
-      batch = batch,
+  # One sequential path for both modes: "fail" stops at the first error,
+  # "collect" records it and skips the nodes that depend on it.
+  for (name in execution_dag$order) {
+    item <- evaluate_series_node(
+      name = name,
+      series = series_map[[name]],
       values = values,
-      series_map = series_map,
       inputs = inputs,
-      runtime = runtime
+      runtime = runtime,
+      dependencies = execution_dag$dependencies[[name]] %||% character()
     )
 
-    for (name in batch) {
-      values[[name]] <- batch_results[[name]]
+    if (identical(item$status, "ok")) {
+      values[[name]] <- item$value
       tick(name)
+    } else if (identical(item$status, "error")) {
+      if (identical(error_mode, "fail")) {
+        fail(sprintf("failed while evaluating series `%s`: %s", name, item$error))
+      }
+      errors[[name]] <- item$error
+    } else {
+      skipped <- c(skipped, name)
     }
   }
 
@@ -364,124 +348,13 @@ evaluate_execution_nodes <- function(execution_dag,
   )
 }
 
-evaluate_execution_batch <- function(batch,
-                                     values,
-                                     series_map,
-                                     inputs,
-                                     runtime) {
-  if (length(batch) > 1L &&
-      requireNamespace("future.apply", quietly = TRUE) &&
-      requireNamespace("future", quietly = TRUE) &&
-      future_plan_allows_parallel()) {
-    result <- future.apply::future_lapply(
-      batch,
-      function(name) {
-        evaluate_series_node(
-          name = name,
-          series = series_map[[name]],
-          values = values,
-          inputs = inputs,
-          runtime = runtime
-        )
-      }
-    )
-    names(result) <- batch
-    return(result)
-  }
-
-  result <- lapply(
-    batch,
-    function(name) {
-      evaluate_series_node(
-        name = name,
-        series = series_map[[name]],
-        values = values,
-        inputs = inputs,
-        runtime = runtime
-      )
-    }
-  )
-  names(result) <- batch
-  result
-}
-
-evaluate_execution_batch_collecting <- function(batch,
-                                                execution_dag,
-                                                values,
-                                                series_map,
-                                                inputs,
-                                                runtime) {
-  if (length(batch) > 1L &&
-      requireNamespace("future.apply", quietly = TRUE) &&
-      requireNamespace("future", quietly = TRUE) &&
-      future_plan_allows_parallel()) {
-    result <- future.apply::future_lapply(
-      batch,
-      function(name) {
-        evaluate_series_node_collecting(
-          name = name,
-          series = series_map[[name]],
-          values = values,
-          inputs = inputs,
-          runtime = runtime,
-          dependencies = execution_dag$dependencies[[name]] %||% character()
-        )
-      }
-    )
-    names(result) <- batch
-    return(result)
-  }
-
-  result <- lapply(
-    batch,
-    function(name) {
-      evaluate_series_node_collecting(
-        name = name,
-        series = series_map[[name]],
-        values = values,
-        inputs = inputs,
-        runtime = runtime,
-        dependencies = execution_dag$dependencies[[name]] %||% character()
-      )
-    }
-  )
-  names(result) <- batch
-  result
-}
-
+# Returns list(status = "ok" | "error" | "skipped", value, error).
 evaluate_series_node <- function(name,
                                  series,
                                  values,
                                  inputs,
-                                 runtime) {
-  tryCatch(
-    {
-      if (identical(series$kind, "raw")) {
-        resolve_input_series(name, inputs)
-      } else {
-        evaluate_expr(
-          expr = series$expression,
-          values = values,
-          runtime = runtime
-        )
-      }
-    },
-    error = function(e) {
-      fail(sprintf(
-        "failed while evaluating series `%s`: %s",
-        name,
-        conditionMessage(e)
-      ))
-    }
-  )
-}
-
-evaluate_series_node_collecting <- function(name,
-                                            series,
-                                            values,
-                                            inputs,
-                                            runtime,
-                                            dependencies) {
+                                 runtime,
+                                 dependencies) {
   missing_deps <- dependencies[!dependencies %in% names(values) | vapply(values[dependencies], is.null, logical(1))]
   if (length(missing_deps) > 0L) {
     return(list(
@@ -519,49 +392,6 @@ default_execution_handler <- function() {
   }
 
   progressr::handler_txtprogressbar()
-}
-
-future_plan_allows_parallel <- function() {
-  plan_value <- tryCatch(future::plan(), error = function(e) NULL)
-  if (is.null(plan_value)) {
-    return(FALSE)
-  }
-
-  if (is.list(plan_value) && length(plan_value) > 0L) {
-    plan_value <- plan_value[[1L]]
-  }
-
-  classes <- class(plan_value)
-  !any(classes %in% c("sequential", "SequentialFutureBackend", "SequentialFuture"))
-}
-
-execution_batches <- function(dag) {
-  assert_inherits(dag, "DAGPlan", "dag")
-
-  remaining <- stats::setNames(
-    vapply(dag$nodes, function(name) length(dag$dependencies[[name]]), integer(1)),
-    dag$nodes
-  )
-  ready <- dag$order[remaining[dag$order] == 0L]
-  batches <- list()
-  completed <- character()
-
-  while (length(ready) > 0L) {
-    batch <- ready
-    batches[[length(batches) + 1L]] <- batch
-    completed <- c(completed, batch)
-    ready <- character()
-
-    for (node in batch) {
-      for (child in dag$downstream[[node]]) {
-        remaining[[child]] <- remaining[[child]] - 1L
-      }
-    }
-
-    ready <- dag$order[remaining[dag$order] == 0L & !(dag$order %in% completed)]
-  }
-
-  batches
 }
 
 prune_execution_dag <- function(dag, outputs = NULL) {

@@ -221,20 +221,5 @@ names(constr_nom_result$values)
 constr_nom_result$outputs$construction.nominal.quarterly
 ```
 
-On Linux, you can evaluate the same subgraph with a parallel `future` backend:
-
-```{r, eval = has_runtime_pkgs && .Platform$OS.type == "unix" && requireNamespace("future", quietly = TRUE) && requireNamespace("future.apply", quietly = TRUE)}
-oplan <- future::plan()
-on.exit(future::plan(oplan), add = TRUE)
-future::plan(future::multicore, workers = 2)
-
-output <- execute_pipeline(
-  path = example_path,
-  inputs = inputs,
-  outputs = "construction.nominal.quarterly",
-  transforms = transforms
-)
-
-output$plan$order
-output$outputs$construction.nominal.quarterly
-```
+To run steps in parallel, or to keep results between sessions, use
+`tar_tsflow()` with `targets`; see the README section "Running With targets".
