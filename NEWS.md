@@ -7,6 +7,15 @@
 * New option `tsflow.allowed_packages` restricts which packages namespaced
   `pkg::fn` transforms may resolve from (#5).
 
+* CSV step cells are now parsed with R's own parser (`str2lang()`) instead of
+  a hand-written one. Existing cells read exactly as before, and cells can now
+  use nested calls (`a2q_sum(jsa(raw_b), conversion = @c)`), arithmetic on
+  numbers (`100 / 4`, evaluated while reading), scientific notation (`1e6`)
+  and `.var(name)` as an alternative to `@name` (#4).
+
+* Step arguments in YAML accept nested calls as
+  `{call: {name: fn, args: [...], kwargs: {...}}}` (#4).
+
 ## Breaking changes
 
 * Transforms are now passed as an explicit registry instead of being looked up

@@ -23,9 +23,19 @@ read directly. CSV files are treated as wide mapping sheets with columns
 representation used by YAML.
 }
 \details{
-CSV step cells support function-style calls such as `foo(bar)` or
-`jsa(raw_b, method = 'uniform')`, with `add/sub/mul/div(...)` treated as
-arithmetic op steps. If a sibling `.meta.yml` or `.meta.yaml` file exists,
-`read_pipeline()` merges its `vars`, `outputs`, and `metadata` into the
-parsed pipeline. CSV step cells can reference sidecar vars with `@name`.
+CSV step cells are R function calls such as `foo(bar)` or
+`jsa(raw_b, method = 'uniform')`, parsed with R's own parser. `add`, `sub`,
+`mul` and `div` with a single argument are arithmetic op steps. Arguments
+can be:
+
+- series names (`raw_b`, `gdp.nominal.quarterly`),
+- numbers (`100`, `-1`, `1e6`), including arithmetic on numbers such as
+  `100 / 4`, which is evaluated while reading,
+- quoted strings (`'uniform'` or `"uniform"`) and `TRUE` / `FALSE`,
+- sidecar var references `@name` (or `.var(name)`),
+- nested calls such as `a2q_sum(jsa(raw_b), conversion = @conversion)`,
+  including namespaced functions like `stats::lag(raw_b, -1)`.
+
+If a sibling `.meta.yml` or `.meta.yaml` file exists, `read_pipeline()`
+merges its `vars`, `outputs`, and `metadata` into the parsed pipeline.
 }

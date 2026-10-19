@@ -43,4 +43,8 @@ internal model.
 The MVP normalizer supports raw series defined by `source` and derived series
 defined by structured `steps`. Derived expressions are normalized into
 reference, literal, call, pipe, and binary operator nodes.
+
+Step arguments may be a series name (bare string or `{ref: name}`), a
+number or flag, `{literal: value}`, `{var: name}`, or a nested call
+`{call: {name: fn, args: [...], kwargs: {...}}}`.
 }

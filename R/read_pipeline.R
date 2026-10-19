@@ -5,11 +5,21 @@
 #' `name,input,step_1,...`, then compiled into the same structured `steps`
 #' representation used by YAML.
 #'
-#' CSV step cells support function-style calls such as `foo(bar)` or
-#' `jsa(raw_b, method = 'uniform')`, with `add/sub/mul/div(...)` treated as
-#' arithmetic op steps. If a sibling `.meta.yml` or `.meta.yaml` file exists,
-#' `read_pipeline()` merges its `vars`, `outputs`, and `metadata` into the
-#' parsed pipeline. CSV step cells can reference sidecar vars with `@name`.
+#' CSV step cells are R function calls such as `foo(bar)` or
+#' `jsa(raw_b, method = 'uniform')`, parsed with R's own parser. `add`, `sub`,
+#' `mul` and `div` with a single argument are arithmetic op steps. Arguments
+#' can be:
+#'
+#' - series names (`raw_b`, `gdp.nominal.quarterly`),
+#' - numbers (`100`, `-1`, `1e6`), including arithmetic on numbers such as
+#'   `100 / 4`, which is evaluated while reading,
+#' - quoted strings (`'uniform'` or `"uniform"`) and `TRUE` / `FALSE`,
+#' - sidecar var references `@name` (or `.var(name)`),
+#' - nested calls such as `a2q_sum(jsa(raw_b), conversion = @conversion)`,
+#'   including namespaced functions like `stats::lag(raw_b, -1)`.
+#'
+#' If a sibling `.meta.yml` or `.meta.yaml` file exists, `read_pipeline()`
+#' merges its `vars`, `outputs`, and `metadata` into the parsed pipeline.
 #'
 #' @param path Path to a pipeline file. YAML and CSV are supported.
 #'
@@ -181,51 +191,43 @@ find_pipeline_sidecar <- function(path) {
 }
 
 parse_csv_step <- function(cell, input_name = NULL) {
-  match <- regexec("^\\s*([^()]+?)\\s*\\((.*)\\)\\s*$", cell)
-  captures <- regmatches(cell, match)[[1L]]
+  expr <- parse_csv_cell(cell)
+  name <- csv_call_name(expr)
 
-  if (length(captures) == 0L) {
+  if (is.null(name) || name %in% c(csv_arithmetic_ops, ".var")) {
     fail(sprintf(
       "CSV step `%s` must use the form `fn(arg1, ...)` or `op(arg)`",
       cell
     ))
   }
 
-  name <- trimws(captures[[2L]])
-  args_text <- trimws(captures[[3L]])
-
-  if (!nzchar(name)) {
-    fail(sprintf("CSV step `%s` must define a non-empty function or op name", cell))
-  }
+  args <- as.list(expr)[-1L]
+  assert_no_empty_csv_args(args, cell)
 
   if (identical(name, "fct_chain")) {
     return(parse_csv_fct_chain_step(
-      args_text = args_text,
+      args = args,
       cell = cell,
       input_name = input_name
     ))
   }
 
-  if (identical(name, "fct") && grepl("[+*/-]", args_text, perl = TRUE)) {
+  if (identical(name, "fct") && length(args) > 0L && is_csv_arithmetic_call(args[[1L]])) {
     return(parse_csv_formula_step(
       name = name,
-      formula_text = args_text,
+      formula_text = deparse_csv_expr(args[[1L]]),
       cell = cell,
       input_name = input_name
     ))
   }
 
-  parsed_args <- parse_csv_step_args(args_text, cell)
-  refs <- c(
-    vapply(parsed_args$args[vapply(parsed_args$args, inherits, logical(1), "RefNode")], `[[`, character(1), "name"),
-    vapply(parsed_args$kwargs[vapply(parsed_args$kwargs, inherits, logical(1), "RefNode")], `[[`, character(1), "name")
-  )
+  converted <- convert_csv_args(args, cell)
 
   if (name %in% c("add", "sub", "mul", "div")) {
-    if (length(parsed_args$kwargs) > 0L) {
+    if (length(converted$kwargs) > 0L) {
       fail(sprintf("CSV op step `%s` does not support named arguments", cell))
     }
-    if (length(parsed_args$args) != 1L) {
+    if (length(converted$args) != 1L) {
       fail(sprintf("CSV op step `%s` must define exactly one argument", cell))
     }
 
@@ -233,47 +235,223 @@ parse_csv_step <- function(cell, input_name = NULL) {
       step = list(
         op = list(
           type = name,
-          right = csv_arg_to_step_value(parsed_args$args[[1L]])
+          right = converted$args[[1L]]
         )
       ),
-      refs = refs
+      refs = converted$refs
     ))
   }
 
-  return(list(
+  list(
     step = list(
       call = list(
         name = name,
-        args = lapply(parsed_args$args, csv_arg_to_step_value),
-        kwargs = lapply(parsed_args$kwargs, csv_arg_to_step_value)
+        args = converted$args,
+        kwargs = converted$kwargs
       )
     ),
-    refs = refs
+    refs = converted$refs
+  )
+}
+
+csv_arithmetic_ops <- c("+", "-", "*", "/")
+
+# Parse one CSV step cell with R's parser. `@name` var references are not
+# valid R, so they are rewritten to `.var(name)` first, outside quoted strings
+# and only where `@` starts a token.
+parse_csv_cell <- function(cell) {
+  quoted_pattern <- "\"[^\"]*\"|'[^']*'"
+  quoted <- regmatches(cell, gregexpr(quoted_pattern, cell))[[1L]]
+  unquoted <- regmatches(cell, gregexpr(quoted_pattern, cell), invert = TRUE)[[1L]]
+  unquoted <- gsub(
+    "(?<![A-Za-z0-9_.])@([A-Za-z_][A-Za-z0-9_.]*)",
+    ".var(\\1)",
+    unquoted,
+    perl = TRUE
+  )
+  rewritten <- paste0(c(rbind(unquoted, c(quoted, ""))), collapse = "")
+
+  tryCatch(
+    str2lang(rewritten),
+    error = function(e) {
+      fail(sprintf(
+        "CSV step `%s` is not a valid expression: %s",
+        cell,
+        conditionMessage(e)
+      ))
+    }
+  )
+}
+
+# Function name of a call as a string (`fn` or `pkg::fn`), the arithmetic
+# operator of an infix call, or NULL if `expr` is not a call with a plain or
+# namespaced function name (e.g. `x[1]`, `x$y`, `x@y`, `function(x) x`).
+csv_call_name <- function(expr) {
+  if (!is.call(expr)) {
+    return(NULL)
+  }
+
+  head <- expr[[1L]]
+  if (is.symbol(head)) {
+    name <- as.character(head)
+    if (name %in% csv_arithmetic_ops || is_syntactic_name(name)) {
+      return(name)
+    }
+    return(NULL)
+  }
+
+  if (is.call(head) && identical(head[[1L]], as.symbol("::")) &&
+      is.symbol(head[[2L]]) && is.symbol(head[[3L]]) &&
+      is_syntactic_name(as.character(head[[3L]]))) {
+    return(paste0(as.character(head[[2L]]), "::", as.character(head[[3L]])))
+  }
+
+  NULL
+}
+
+is_syntactic_name <- function(name) {
+  identical(make.names(name), name)
+}
+
+is_csv_arithmetic_call <- function(expr) {
+  is.call(expr) && is.symbol(expr[[1L]]) && as.character(expr[[1L]]) %in% csv_arithmetic_ops
+}
+
+is_missing_csv_arg <- function(expr) {
+  is.symbol(expr) && identical(as.character(expr), "")
+}
+
+assert_no_empty_csv_args <- function(args, cell) {
+  if (any(vapply(args, is_missing_csv_arg, logical(1)))) {
+    fail(sprintf("CSV step `%s` contains an empty argument", cell))
+  }
+}
+
+deparse_csv_expr <- function(expr) {
+  paste(deparse(expr, width.cutoff = 500L), collapse = "")
+}
+
+# Convert parsed call arguments into YAML-shaped step values, splitting
+# positional args from named kwargs and collecting referenced series names.
+convert_csv_args <- function(args, cell) {
+  arg_names <- names(args) %||% rep("", length(args))
+  positional <- !nzchar(arg_names)
+
+  converted <- lapply(args, convert_csv_arg, cell = cell)
+  values <- lapply(converted, `[[`, "value")
+
+  list(
+    args = unname(values[positional]),
+    kwargs = values[!positional],
+    refs = unlist(
+      c(lapply(converted[positional], `[[`, "refs"), lapply(converted[!positional], `[[`, "refs")),
+      use.names = FALSE
+    ) %||% character()
+  )
+}
+
+convert_csv_arg <- function(expr, cell) {
+  if (is.symbol(expr)) {
+    name <- as.character(expr)
+    return(list(value = name, refs = name))
+  }
+
+  if (is.character(expr) && length(expr) == 1L) {
+    return(list(value = list(literal = expr), refs = character()))
+  }
+
+  if ((is.numeric(expr) || is.logical(expr)) && length(expr) == 1L) {
+    if (is.na(expr)) {
+      fail(sprintf("CSV step `%s` contains a missing value (`NA`), which is not supported", cell))
+    }
+    return(list(value = expr, refs = character()))
+  }
+
+  if (is.null(expr)) {
+    fail(sprintf("CSV step `%s` contains `NULL`, which is not supported as an argument", cell))
+  }
+
+  if (is_csv_arithmetic_call(expr)) {
+    return(list(value = fold_csv_number(expr, cell), refs = character()))
+  }
+
+  if (is.call(expr) && identical(expr[[1L]], as.symbol("("))) {
+    return(convert_csv_arg(expr[[2L]], cell))
+  }
+
+  name <- csv_call_name(expr)
+
+  if (identical(name, ".var")) {
+    if (length(expr) != 2L || !(is.symbol(expr[[2L]]) || is_scalar_string(expr[[2L]]))) {
+      fail(sprintf("CSV step `%s` must use `.var(name)` with a single var name", cell))
+    }
+    return(list(value = list(var = as.character(expr[[2L]])), refs = character()))
+  }
+
+  if (!is.null(name) && !(name %in% c(csv_arithmetic_ops, "add", "sub", "mul", "div", "fct", "fct_chain"))) {
+    args <- as.list(expr)[-1L]
+    assert_no_empty_csv_args(args, cell)
+    nested <- convert_csv_args(args, cell)
+    return(list(
+      value = list(call = list(name = name, args = nested$args, kwargs = nested$kwargs)),
+      refs = nested$refs
+    ))
+  }
+
+  fail(sprintf(
+    "CSV step `%s` contains an unsupported argument `%s`; arguments must be series names, numbers, quoted strings, `TRUE`/`FALSE`, `@var` references or nested calls",
+    cell,
+    deparse_csv_expr(expr)
   ))
 }
 
-parse_csv_fct_chain_step <- function(args_text, cell, input_name) {
-  parts <- split_csv_arguments(args_text, cell)
-  if (length(parts) < 2L) {
+# Evaluate arithmetic on number literals, e.g. `100 / 3` or `-1`, while reading.
+fold_csv_number <- function(expr, cell) {
+  if (is.numeric(expr) && length(expr) == 1L && !is.na(expr)) {
+    return(expr)
+  }
+
+  if (is.call(expr) && identical(expr[[1L]], as.symbol("("))) {
+    return(fold_csv_number(expr[[2L]], cell))
+  }
+
+  if (is_csv_arithmetic_call(expr)) {
+    op <- get(as.character(expr[[1L]]), envir = baseenv())
+    operands <- lapply(as.list(expr)[-1L], fold_csv_number, cell = cell)
+    return(do.call(op, operands))
+  }
+
+  fail(sprintf(
+    "CSV step `%s` uses arithmetic on `%s`; arithmetic inside arguments only supports numbers",
+    cell,
+    deparse_csv_expr(expr)
+  ))
+}
+
+parse_csv_fct_chain_step <- function(args, cell, input_name) {
+  if (length(args) < 2L) {
     fail(sprintf(
       "CSV fct_chain step `%s` must use `fct_chain(real_formula, nom=nominal_formula, ...)`",
       cell
     ))
   }
 
-  real_formula <- trimws(parts[[1L]])
-  nominal_part <- trimws(parts[[2L]])
-  nominal_match <- regexec("^nom\\s*=\\s*(.+)$", nominal_part)
-  nominal_captures <- regmatches(nominal_part, nominal_match)[[1L]]
-  if (length(nominal_captures) == 0L) {
+  arg_names <- names(args) %||% rep("", length(args))
+  if (nzchar(arg_names[[1L]])) {
+    fail(sprintf(
+      "CSV fct_chain step `%s` must use `fct_chain(real_formula, nom=nominal_formula, ...)`",
+      cell
+    ))
+  }
+  if (!identical(arg_names[[2L]], "nom")) {
     fail(sprintf(
       "CSV fct_chain step `%s` must define the nominal formula as `nom=...`",
       cell
     ))
   }
 
-  real_parsed <- parse_csv_formula(real_formula, cell)
-  nominal_parsed <- parse_csv_formula(trimws(nominal_captures[[2L]]), cell)
+  real_parsed <- parse_csv_formula(deparse_csv_expr(args[[1L]]), cell)
+  nominal_parsed <- parse_csv_formula(deparse_csv_expr(args[[2L]]), cell)
 
   if (!is_scalar_string(input_name) || !nzchar(input_name)) {
     fail(sprintf("CSV formula step `%s` requires a non-empty row `input`", cell))
@@ -310,15 +488,15 @@ parse_csv_fct_chain_step <- function(args_text, cell, input_name) {
     kwargs[[paste0("nominal__", token)]] <- token
   }
 
-  if (length(parts) > 2L) {
-    extra_args <- parse_csv_step_args(paste(parts[-c(1L, 2L)], collapse = ", "), cell)
+  if (length(args) > 2L) {
+    extra_args <- convert_csv_args(args[-c(1L, 2L)], cell)
     if (length(extra_args$args) > 0L) {
       fail(sprintf(
         "CSV fct_chain step `%s` only supports additional named arguments after `nom=...`",
         cell
       ))
     }
-    kwargs <- c(kwargs, lapply(extra_args$kwargs, csv_arg_to_step_value))
+    kwargs <- c(kwargs, extra_args$kwargs)
   }
 
   list(
@@ -406,105 +584,6 @@ parse_csv_formula <- function(text, cell) {
   )
 }
 
-parse_csv_step_args <- function(text, cell) {
-  if (!nzchar(text)) {
-    return(list(args = list(), kwargs = list()))
-  }
-
-  pieces <- split_csv_arguments(text, cell)
-  if (any(!nzchar(pieces))) {
-    fail(sprintf("CSV step `%s` contains an empty argument", cell))
-  }
-
-  args <- list()
-  kwargs <- list()
-
-  for (piece in pieces) {
-    parsed <- parse_csv_arg(piece)
-    if (parsed$type == "kwarg") {
-      kwargs[[parsed$name]] <- parsed$value
-    } else {
-      args[[length(args) + 1L]] <- parsed$value
-    }
-  }
-
-  list(args = args, kwargs = kwargs)
-}
-
-parse_csv_arg <- function(x) {
-  value <- trimws(x)
-
-  kwarg_match <- regexec("^([A-Za-z_][A-Za-z0-9_.-]*)\\s*=\\s*(.+)$", value)
-  kwarg_captures <- regmatches(value, kwarg_match)[[1L]]
-  if (length(kwarg_captures) > 0L) {
-    return(list(
-      type = "kwarg",
-      name = kwarg_captures[[2L]],
-      value = parse_csv_scalar(trimws(kwarg_captures[[3L]]))
-    ))
-  }
-
-  list(
-    type = "arg",
-    value = parse_csv_scalar(value)
-  )
-}
-
-parse_csv_scalar <- function(value) {
-  if (grepl("^[+-]?[0-9]+(\\.[0-9]+)?$", value)) {
-    return(new_literal_node(as.numeric(value)))
-  }
-  if (identical(value, "TRUE")) {
-    return(new_literal_node(TRUE))
-  }
-  if (identical(value, "FALSE")) {
-    return(new_literal_node(FALSE))
-  }
-  if (grepl("^'.*'$", value) || grepl('^".*"$', value)) {
-    return(new_literal_node(substr(value, 2L, nchar(value) - 1L)))
-  }
-  if (grepl("^@[A-Za-z_][A-Za-z0-9_.-]*$", value)) {
-    return(new_var_placeholder(sub("^@", "", value)))
-  }
-  if (grepl("[()]", value)) {
-    fail(sprintf(
-      "CSV argument `%s` is invalid; nested calls and expressions are not supported",
-      value
-    ))
-  }
-  if (!nzchar(value)) {
-    fail("CSV arguments must be non-empty")
-  }
-
-  new_ref_node(value)
-}
-
-csv_arg_to_step_value <- function(arg) {
-  if (inherits(arg, "RefNode")) {
-    return(arg$name)
-  }
-
-  if (inherits(arg, "LiteralNode")) {
-    if (is_scalar_string(arg$value)) {
-      return(list(literal = arg$value))
-    }
-    return(arg$value)
-  }
-
-  if (inherits(arg, "VarPlaceholder")) {
-    return(list(var = arg$name))
-  }
-
-  fail("CSV step arguments must normalize to refs or literals")
-}
-
-new_var_placeholder <- function(name) {
-  structure(
-    list(name = name),
-    class = c("VarPlaceholder", "tsflow_spec")
-  )
-}
-
 trim_character <- function(x) {
   trimws(as.character(x))
 }
@@ -515,36 +594,4 @@ trim_cell <- function(x) {
     return("")
   }
   value
-}
-
-split_csv_arguments <- function(text, cell) {
-  chars <- strsplit(text, "", fixed = TRUE)[[1L]]
-  pieces <- character()
-  current <- character()
-  quote_char <- NULL
-
-  for (char in chars) {
-    if (is.null(quote_char)) {
-      if (char %in% c("'", "\"")) {
-        quote_char <- char
-        current <- c(current, char)
-        next
-      }
-      if (char == ",") {
-        pieces <- c(pieces, trimws(paste(current, collapse = "")))
-        current <- character()
-        next
-      }
-    } else if (identical(char, quote_char)) {
-      quote_char <- NULL
-    }
-
-    current <- c(current, char)
-  }
-
-  if (!is.null(quote_char)) {
-    fail(sprintf("CSV step `%s` contains an unterminated quoted string", cell))
-  }
-
-  c(pieces, trimws(paste(current, collapse = "")))
 }
