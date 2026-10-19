@@ -182,20 +182,14 @@ evaluate_expanded_step <- function(step, current_value, values, runtime) {
     op_node <- step$node
     right <- evaluate_expr(op_node$right, values = values, runtime = runtime)
 
-    if (identical(op_node$op, "add")) {
-      return(current_value + right)
-    }
-    if (identical(op_node$op, "sub")) {
-      return(current_value - right)
-    }
-    if (identical(op_node$op, "mul")) {
-      return(current_value * right)
-    }
-    if (identical(op_node$op, "div")) {
-      return(current_value / right)
-    }
-
-    fail(sprintf("unsupported binary op `%s`", op_node$op))
+    # Same arithmetic as evaluation (hooks and alignment checks included).
+    return(evaluate_binary_op(
+      op = op_node$op,
+      left = current_value,
+      right = right,
+      runtime = runtime,
+      labels = c(operand_label(op_node$left, "left side"), operand_label(op_node$right, "right side"))
+    ))
   }
 
   fail(sprintf("unsupported expanded step type `%s`", step$type))

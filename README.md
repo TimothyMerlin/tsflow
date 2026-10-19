@@ -184,6 +184,10 @@ its own target; use `granularity = "series"` for one target per series.
 - If `outputs = NULL`, `result$outputs` defaults to derived series only.
 - If `outputs = ...` is provided, execution is pruned to the upstream subgraph
   needed for those targets.
+- Arithmetic steps (`add`, `sub`, `mul`, `div`, or `+ - * /` in `expr`)
+  between two series combine them on their common period; observations
+  outside the overlap are dropped. Non-overlapping series, `ts` series with
+  different frequencies, and mixing `ts` with `xts` are errors.
 - Series are evaluated one after another in dependency order. With
   `error_mode = "fail"` the first error stops the run; with `"collect"` it is
   recorded and only the series depending on it are skipped.
