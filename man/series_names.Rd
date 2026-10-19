@@ -15,7 +15,7 @@ series_names(x, kind = NULL)
 }
 \value{
 Character vector of series names, in definition order. May be empty
-when `kind` matches no series.
+  when `kind` matches no series.
 }
 \description{
 Extracts the series names declared by a pipeline, in definition order.
