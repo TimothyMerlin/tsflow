@@ -75,21 +75,36 @@ evaluate_pipeline <- function(pipeline,
     progress = progress,
     error_mode = error_mode
   )
-  values <- execution_result$values
+  new_pipeline_result(
+    pipeline = pipeline,
+    execution_dag = execution_dag,
+    values = execution_result$values,
+    outputs = outputs,
+    errors = execution_result$errors,
+    skipped = execution_result$skipped,
+    error_mode = error_mode
+  )
+}
 
-  if (identical(error_mode, "collect") && length(execution_result$errors) > 0L) {
-    failed_nodes <- names(execution_result$errors)
-    skipped_nodes <- execution_result$skipped
-
+# Shared by in-memory and cached (targets) execution.
+new_pipeline_result <- function(pipeline,
+                                execution_dag,
+                                values,
+                                outputs,
+                                errors,
+                                skipped,
+                                error_mode,
+                                extra = list()) {
+  if (identical(error_mode, "collect") && length(errors) > 0L) {
     lines <- c(
       "Some pipeline nodes failed during execution",
-      "x" = paste("failed:", paste(failed_nodes, collapse = ", "))
+      "x" = paste("failed:", paste(names(errors), collapse = ", "))
     )
 
-    if (length(skipped_nodes) > 0L) {
+    if (length(skipped) > 0L) {
       lines <- c(
         lines,
-        "i" = paste("skipped:", paste(skipped_nodes, collapse = ", "))
+        "i" = paste("skipped:", paste(skipped, collapse = ", "))
       )
     }
 
@@ -98,23 +113,20 @@ evaluate_pipeline <- function(pipeline,
 
   materialized_names <- outputs %||% default_output_names(pipeline, execution_dag)
   available_outputs <- materialized_names[materialized_names %in% names(values)]
-  materialized <- values[available_outputs]
-  annotated_dag <- annotate_result_dag(
-    dag = execution_dag,
-    errors = execution_result$errors,
-    skipped = execution_result$skipped
-  )
 
   structure(
-    list(
-      pipeline = pipeline,
-      plan = execution_dag,
-      dag = annotated_dag,
-      values = values,
-      outputs = materialized,
-      errors = execution_result$errors,
-      skipped = execution_result$skipped,
-      error_mode = error_mode
+    c(
+      list(
+        pipeline = pipeline,
+        plan = execution_dag,
+        dag = annotate_result_dag(dag = execution_dag, errors = errors, skipped = skipped),
+        values = values,
+        outputs = values[available_outputs],
+        errors = errors,
+        skipped = skipped,
+        error_mode = error_mode
+      ),
+      extra
     ),
     class = c("PipelineResult", "tsflow_spec")
   )

@@ -111,6 +111,28 @@ functions such as `stats::lag`. Bare names must be registered in the
 namespace. To restrict which packages a pipeline may call, set
 `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 
+## Caching Results
+
+To keep results between runs and recompute only what changed, give
+`execute_pipeline()` a cache directory, or set it once for a whole script:
+
+```r
+options(tsflow.store = "_tsflow_cache")
+
+result <- execute_pipeline(
+  path = "inst/examples/gdp_construction.csv",
+  inputs = gdp_construction_inputs,
+  transforms = transforms
+)
+
+result$rebuilt   # series recomputed in this run
+```
+
+This uses [targets](https://docs.ropensci.org/targets/) behind the scenes; no
+`_targets.R` is needed. Changes to inputs, parameters, transforms and the
+functions they use are detected. Don't run two R processes on the same store
+at the same time.
+
 ## Running With targets
 
 For larger or regularly updated pipelines, `tar_tsflow()` turns a pipeline into
