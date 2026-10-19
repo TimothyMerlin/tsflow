@@ -3,7 +3,7 @@
 #' Extracts the series names declared by a pipeline, in definition order.
 #'
 #' @param x A `PipelineSpec` (from `normalize_pipeline()`), `PipelinePlan`
-#'   (from `plan_pipeline()`), or `PipelineResult` (from `run_pipeline()`).
+#'   (from `plan_pipeline()`), or `PipelineResult` (from `execute_pipeline()`).
 #' @param kind Optional character vector of series kinds to keep: `"raw"`,
 #'   `"derived"`, or both. `NULL` (default) returns every series name.
 #'

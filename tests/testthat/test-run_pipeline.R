@@ -1,4 +1,4 @@
-test_that("run_pipeline executes the full YAML-to-result flow", {
+test_that("execute_pipeline executes the full YAML-to-result flow", {
   scale <- function(x, factor) x * factor
 
   path <- tempfile(fileext = ".yml")
@@ -21,7 +21,7 @@ test_that("run_pipeline executes the full YAML-to-result flow", {
     con = path
   )
 
-  result <- run_pipeline(
+  result <- execute_pipeline(
     path = path,
     inputs = list(
       raw_a = ts(5, start = c(2024, 1), frequency = 12)
@@ -34,7 +34,7 @@ test_that("run_pipeline executes the full YAML-to-result flow", {
   expect_equal(result$plan$order, c("raw_a", "derived_b"))
 })
 
-test_that("run_pipeline lets explicit outputs override YAML outputs", {
+test_that("execute_pipeline lets explicit outputs override YAML outputs", {
   scale <- function(x, factor) x * factor
 
   path <- tempfile(fileext = ".yml")
@@ -55,7 +55,7 @@ test_that("run_pipeline lets explicit outputs override YAML outputs", {
     con = path
   )
 
-  result <- run_pipeline(
+  result <- execute_pipeline(
     path = path,
     inputs = list(
       raw_a = ts(5, start = c(2024, 1), frequency = 12)
@@ -104,7 +104,7 @@ test_that("execute_pipeline defaults to derived outputs and respects the progres
   expect_equal(names(result$values), c("raw_a", "derived_b"))
 })
 
-test_that("run_pipeline surfaces normalization and execution failures", {
+test_that("execute_pipeline surfaces normalization failures and missing inputs", {
   bad_path <- tempfile(fileext = ".yml")
   writeLines(
     c(
@@ -115,7 +115,7 @@ test_that("run_pipeline surfaces normalization and execution failures", {
   )
 
   expect_error(
-    run_pipeline(
+    execute_pipeline(
       path = bad_path,
       inputs = list()
     ),
@@ -134,12 +134,16 @@ test_that("run_pipeline surfaces normalization and execution failures", {
   )
 
   expect_warning(
-    run_pipeline(
+    execute_pipeline(
       path = missing_input_path,
       inputs = list()
     ),
     "missing: raw_a"
   )
+})
+
+test_that("run_pipeline is removed", {
+  expect_false(exists("run_pipeline", envir = asNamespace("tsflow"), inherits = FALSE))
 })
 
 test_that("execute_pipeline exposes collect mode through the file wrapper", {
