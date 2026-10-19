@@ -7,6 +7,12 @@
 * New option `tsflow.allowed_packages` restricts which packages namespaced
   `pkg::fn` transforms may resolve from (#5).
 
+* New `tar_tsflow()` turns a pipeline into a `targets` pipeline, with one
+  target per step (or per series with `granularity = "series"`), so only steps
+  whose inputs, parameters or transforms changed are rerun. Transforms are
+  referenced so `targets` tracks changes per transform where possible, and
+  updating a package used via `pkg::fn` reruns the steps that use it (#14).
+
 * CSV step cells are now parsed with R's own parser (`str2lang()`) instead of
   a hand-written one. Existing cells read exactly as before, and cells can now
   use nested calls (`a2q_sum(jsa(raw_b), conversion = @c)`), arithmetic on

@@ -111,6 +111,33 @@ functions such as `stats::lag`. Bare names must be registered in the
 namespace. To restrict which packages a pipeline may call, set
 `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 
+## Running With targets
+
+For larger or regularly updated pipelines, `tar_tsflow()` turns a pipeline into
+a [targets](https://docs.ropensci.org/targets/) pipeline. `targets` then reruns
+only the steps whose inputs, parameters or transforms changed, keeps results
+between sessions, and can run steps in parallel.
+
+```r
+# _targets.R
+library(targets)
+library(tsflow)
+
+# jsa, real_gr_nom, a2q_sum as defined in vignette("gdp-construction")
+
+list(
+  tar_target(tsflow_inputs, load_my_inputs()),   # named list of raw series
+  tar_tsflow(
+    "gdp_construction.csv",
+    transforms = list(jsa = jsa, real_gr_nom = real_gr_nom, a2q_sum = a2q_sum)
+  )
+)
+```
+
+Run it with `targets::tar_make()` and read a series with
+`targets::tar_read(construction.deflator.quarterly)`. By default each step is
+its own target; use `granularity = "series"` for one target per series.
+
 ## Execution Semantics
 
 - `result$values` contains the full executed state for the run.
