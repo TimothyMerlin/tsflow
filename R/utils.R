@@ -3,24 +3,18 @@
 }
 
 fail <- function(...) {
-  msg <- c(...)
-
-  if (requireNamespace("cli", quietly = TRUE)) {
-    cli::cli_abort(msg, call = NULL)
-  }
-
-  stop(paste0(msg, collapse = "\n"), call. = FALSE)
+  cli::cli_abort(escape_cli_braces(c(...)), call = NULL)
 }
 
 warn <- function(...) {
-  msg <- c(...)
+  cli::cli_warn(escape_cli_braces(c(...)), call = NULL)
+  invisible(NULL)
+}
 
-  if (requireNamespace("cli", quietly = TRUE)) {
-    cli::cli_warn(msg, call = NULL)
-    return(invisible(NULL))
-  }
-
-  warning(paste0(msg, collapse = "\n"), call. = FALSE)
+# Messages embed user-supplied names and values; doubling braces stops cli from
+# evaluating them as glue expressions.
+escape_cli_braces <- function(msg) {
+  gsub("}", "}}", gsub("{", "{{", msg, fixed = TRUE), fixed = TRUE)
 }
 
 is_scalar_string <- function(x) {

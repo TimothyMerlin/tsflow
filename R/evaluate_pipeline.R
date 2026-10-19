@@ -590,13 +590,20 @@ invoke_transform <- function(transform_name,
                              kwargs,
                              values,
                              transform_env,
-                             input_value = NULL) {
+                             input_value) {
+  # Pipe steps always pass `input_value`, even when the upstream step returned
+  # NULL, so only a missing argument means there is no piped value.
+  has_input <- !missing(input_value)
+  if (!has_input) {
+    input_value <- NULL
+  }
+
   tryCatch(
     {
       fn <- resolve_transform(transform_name, transform_env = transform_env)
       evaluated_args <- lapply(args, evaluate_expr, values = values, transform_env = transform_env)
       evaluated_kwargs <- lapply(kwargs, evaluate_expr, values = values, transform_env = transform_env)
-      call_args <- c(if (is.null(input_value)) list() else list(input_value), evaluated_args, evaluated_kwargs)
+      call_args <- c(if (has_input) list(input_value), evaluated_args, evaluated_kwargs)
       postprocess_evaluated_value(
         do.call(fn, call_args),
         transform_env = transform_env,

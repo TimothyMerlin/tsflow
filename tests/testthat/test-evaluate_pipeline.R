@@ -50,6 +50,64 @@ test_that("evaluate_pipeline executes raw and derived nodes end to end", {
   expect_equal(result$dag$node_status[["final_d"]], "ok")
 })
 
+test_that("evaluate_pipeline pipes a NULL step result as the first argument", {
+  to_null <- function(x) NULL
+  show_args <- function(x, k = "default") list(x = x, k = k)
+
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "injected")),
+      list(
+        name = "b",
+        steps = list(
+          list(input = "raw_a"),
+          list(call = list(name = "to_null")),
+          list(call = list(name = "show_args", args = list(list(literal = "second"))))
+        )
+      )
+    )
+  ))
+
+  result <- evaluate_pipeline(
+    pipeline = spec,
+    inputs = list(raw_a = ts(1:3)),
+    transform_env = environment(),
+    progress = FALSE
+  )
+
+  expect_equal(result$values$b, list(x = NULL, k = "second"))
+})
+
+test_that("expand_node_result pipes a NULL step result as the first argument", {
+  to_null <- function(x) NULL
+  show_args <- function(x, k = "default") list(x = x, k = k)
+
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "injected")),
+      list(
+        name = "b",
+        steps = list(
+          list(input = "raw_a"),
+          list(call = list(name = "to_null")),
+          list(call = list(name = "show_args", args = list(list(literal = "second"))))
+        )
+      )
+    )
+  ))
+
+  result <- evaluate_pipeline(
+    pipeline = spec,
+    inputs = list(raw_a = ts(1:3)),
+    transform_env = environment(),
+    progress = FALSE
+  )
+  expanded <- expand_node_result(result, "b", transform_env = environment())
+
+  expect_null(expanded$failed_step)
+  expect_equal(expanded$values$b, list(x = NULL, k = "second"))
+})
+
 test_that("evaluate_pipeline materializes all values when outputs are absent", {
   spec <- normalize_pipeline(list(
     series = list(
