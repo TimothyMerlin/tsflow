@@ -47,4 +47,12 @@ reference, literal, call, pipe, and binary operator nodes.
 Step arguments may be a series name (bare string or `{ref: name}`), a
 number or flag, `{literal: value}`, `{var: name}`, or a nested call
 `{call: {name: fn, args: [...], kwargs: {...}}}`.
+
+Instead of `steps`, a derived series can be written as a single `expr`
+string using the CSV cell syntax, e.g.
+`expr: "jsa(x, method = 'uniform') / 1000"`. As with R's pipe, the first
+argument of each call is the piped input, so this is equivalent to the steps
+`input: x`, `call: jsa(method = 'uniform')`, `op: div 1000`. The innermost
+first argument must be a series, and the right side of `+ - * /` can be a
+series, value, var or call but not arithmetic that combines series.
 }

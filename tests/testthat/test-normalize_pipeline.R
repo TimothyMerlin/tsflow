@@ -62,7 +62,7 @@ test_that("normalize_pipeline builds canonical raw and derived specs", {
 test_that("normalize_series rejects invalid shapes", {
   expect_error(
     normalize_series(list(name = "bad")),
-    "must define either `source` or `steps`"
+    "must define either `source`, `steps` or `expr`"
   )
 
   expect_error(
@@ -73,6 +73,110 @@ test_that("normalize_series rejects invalid shapes", {
     )),
     "cannot define both `source` and `steps`"
   )
+
+  expect_error(
+    normalize_series(list(name = "bad", steps = list(list(input = "x")), expr = "x")),
+    "cannot define both `steps` and `expr`"
+  )
+  expect_error(normalize_series(list(name = "bad", expr = c("x", "y"))), "`expr` must be a single string")
+})
+
+test_that("expr series normalize identically to the equivalent steps", {
+  vars <- list(m = "denton")
+  pairs <- list(
+    list(
+      expr = "x",
+      steps = list(list(input = "x"))
+    ),
+    list(
+      expr = "jsa(x, method = 'u') / 1000",
+      steps = list(
+        list(input = "x"),
+        list(call = list(name = "jsa", kwargs = list(method = list(literal = "u")))),
+        list(op = list(type = "div", right = 1000))
+      )
+    ),
+    list(
+      expr = "a2q_sum(real_gr_nom(growth, nominal, base_year = @m), gdp.q) / 1000",
+      steps = list(
+        list(input = "growth"),
+        list(call = list(name = "real_gr_nom", args = list("nominal"), kwargs = list(base_year = list(var = "m")))),
+        list(call = list(name = "a2q_sum", args = list("gdp.q"))),
+        list(op = list(type = "div", right = 1000))
+      )
+    ),
+    list(
+      expr = "(a + b) * stats::lag(c, -1) - 2",
+      steps = list(
+        list(input = "a"),
+        list(op = list(type = "add", right = "b")),
+        list(op = list(type = "mul", right = list(call = list(name = "stats::lag", args = list("c", -1))))),
+        list(op = list(type = "sub", right = 2))
+      )
+    ),
+    list(
+      expr = "div(scale(x, factor = 100 / 4), prices)",
+      steps = list(
+        list(input = "x"),
+        list(call = list(name = "scale", kwargs = list(factor = 25))),
+        list(op = list(type = "div", right = "prices"))
+      )
+    )
+  )
+
+  for (pair in pairs) {
+    from_expr <- normalize_series(list(name = "s", expr = pair$expr), vars = vars)
+    from_steps <- normalize_series(list(name = "s", steps = pair$steps), vars = vars)
+    expect_identical(from_expr, from_steps, label = pair$expr)
+  }
+})
+
+test_that("expr rejects forms that are not a series chain", {
+  bad <- function(expr) normalize_series(list(name = "s", expr = expr))
+
+  expect_error(bad("a / (b + c)"), "right side of `/` (`b + c`) combines series", fixed = TRUE)
+  expect_error(bad("scale(100, x)"), "must start from a series, but `100` is not a series name", fixed = TRUE)
+  expect_error(bad("-x"), "uses unary `-` on `x`", fixed = TRUE)
+  expect_error(bad("jsa(x = a)"), "`jsa()` needs the series it applies to as its first, unnamed argument", fixed = TRUE)
+  expect_error(bad("f()"), "`f()` needs the series", fixed = TRUE)
+  expect_error(bad("fct(a + b)"), "`fct` / `fct_chain` formulas are only supported in CSV steps", fixed = TRUE)
+  expect_error(bad("div(x, 1, 2)"), "takes a series and exactly one unnamed operand", fixed = TRUE)
+  expect_error(bad("x[1]"), "is not a series name", fixed = TRUE)
+  expect_error(bad("jsa(x, 'open)"), "series `s` `expr` is not a valid expression", fixed = TRUE)
+  expect_error(bad("scale(x, factor = y * 2)"), "series `s` `expr` uses arithmetic on `y`", fixed = TRUE)
+})
+
+test_that("expr series evaluate end to end", {
+  path <- tempfile(fileext = ".yml")
+  writeLines(
+    c(
+      "vars:",
+      "  factor: 10",
+      "series:",
+      "  - name: raw_a",
+      "    source: {type: injected}",
+      "  - name: prices",
+      "    source: {type: injected}",
+      "  - name: real_a",
+      "    expr: \"scale(raw_a, factor = @factor) / prices - 1\""
+    ),
+    con = path
+  )
+
+  scale <- function(x, factor) x * factor
+  result <- execute_pipeline(
+    path,
+    inputs = list(raw_a = ts(c(2, 4)), prices = ts(c(4, 8))),
+    transforms = list(scale = scale),
+    progress = FALSE
+  )
+
+  expect_equal(as.numeric(result$values$real_a), c(4, 4))
+  expect_equal(result$plan$dependencies$real_a, c("raw_a", "prices"))
+
+  expanded <- expand_node_result(result, "real_a", transforms = list(scale = scale))
+  expect_null(expanded$failed_step)
+  expect_length(expanded$values, 5L)
 })
 
 test_that("normalize_steps enforces a single first input step", {

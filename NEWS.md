@@ -16,6 +16,11 @@
 * Step arguments in YAML accept nested calls as
   `{call: {name: fn, args: [...], kwargs: {...}}}` (#4).
 
+* Derived series in YAML can be written as a single `expr` string instead of
+  `steps`, e.g. `expr: "jsa(x, method = 'uniform') / 1000"`. The first
+  argument of each call is the piped input, so an `expr` series is identical
+  to the equivalent `steps` series (#12).
+
 ## Breaking changes
 
 * Transforms are now passed as an explicit registry instead of being looked up
