@@ -8,7 +8,8 @@ evaluate_pipeline(
   pipeline,
   inputs,
   outputs = pipeline$outputs \%||\% NULL,
-  transform_env = parent.frame(),
+  transforms = list(),
+  hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
   error_mode = c("fail", "collect")
 )
@@ -22,9 +23,12 @@ R `ts` or `xts` objects keyed by raw series name.}
 \item{outputs}{Optional output names to materialize. When provided, execution
 is pruned to the upstream subgraph required to compute those outputs.}
 
-\item{transform_env}{Environment used to resolve bare transform names during
-execution. Namespaced transforms such as `stats::lag` are resolved
-directly.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names during validation and execution. Namespaced transforms such as
+`stats::lag` are resolved directly and do not need to be registered.}
+
+\item{hooks}{Optional named list of evaluation hooks for advanced runtimes.
+Supported hooks are `binary_op` and `postprocess`; see Details.}
 
 \item{progress}{Whether to show execution progress in interactive sessions.
 Defaults to `getOption("tsflow.progress", TRUE)`.}
@@ -42,17 +46,14 @@ Evaluates a normalized pipeline in topological order using preloaded raw
 inputs and direct R function resolution.
 }
 \details{
-Transform names may be authored either as explicit namespaced
-  references such as `stats::lag` or as bare names resolved from
-  `transform_env`. The recommended authored form is `pkg::fn`.
+Transform names may be authored either as namespaced references
+  such as `stats::lag` or as bare names registered in `transforms`, e.g.
+  `transforms = list(scale = scale)`.
 
-  `transform_env` may also define optional evaluation hooks for advanced
-  runtimes. If a function named `tsflow_evaluate_binary_op(op, left, right)`
-  is present, tsflow uses it to evaluate DAG binary operations instead of the
-  default arithmetic dispatch. If a function named
-  `tsflow_postprocess_value(result, context)` is present, tsflow calls it on
-  transform results after the underlying transform function returns. When
-  these hooks are absent, default evaluation behavior is unchanged.
+  `hooks$binary_op(op, left, right)`, when supplied, evaluates `add`, `sub`,
+  `mul` and `div` steps instead of the default arithmetic.
+  `hooks$postprocess(result, context)`, when supplied, is called on every
+  transform result after the transform function returns.
 
   In interactive sessions, `evaluate_pipeline()` uses `progressr`
   automatically when it is installed. Existing user-configured `progressr`

@@ -6,8 +6,11 @@
 #' @param result A `PipelineResult` object.
 #' @param node A node name present in the executed DAG.
 #' @param include_self Whether to include `node` in the returned result.
-#' @param transform_env Environment used to resolve bare transform names during
-#'   step-by-step replay of one expanded node.
+#' @param transforms A named list of functions used to resolve bare transform
+#'   names during step-by-step replay of one expanded node. Use the same
+#'   registry that produced `result`.
+#' @param hooks Optional named list of evaluation hooks used during replay; see
+#'   [evaluate_pipeline()].
 #'
 #' @return
 #' `result_path()` returns the ordered upstream path used to calculate `node`.
@@ -21,8 +24,9 @@
 #'
 #' @name result_helpers
 #' @export
-expand_node_result <- function(result, node, transform_env = parent.frame()) {
+expand_node_result <- function(result, node, transforms = list(), hooks = list()) {
   assert_inherits(result, "PipelineResult", "result")
+  runtime <- new_runtime(transforms = transforms, hooks = hooks)
 
   pipeline <- result$pipeline
   assert_inherits(pipeline, "PipelineSpec", "result$pipeline")
@@ -79,7 +83,7 @@ expand_node_result <- function(result, node, transform_env = parent.frame()) {
           step = step,
           current_value = current_value,
           values = result$values,
-          transform_env = transform_env
+          runtime = runtime
         ),
         error = function(e) e
       )
@@ -161,7 +165,7 @@ decompose_node_expression <- function(expr) {
   ))
 }
 
-evaluate_expanded_step <- function(step, current_value, values, transform_env) {
+evaluate_expanded_step <- function(step, current_value, values, runtime) {
   if (identical(step$type, "call")) {
     call_node <- step$node
     return(invoke_transform(
@@ -170,13 +174,13 @@ evaluate_expanded_step <- function(step, current_value, values, transform_env) {
       args = call_node$args,
       kwargs = call_node$kwargs,
       values = values,
-      transform_env = transform_env
+      runtime = runtime
     ))
   }
 
   if (identical(step$type, "op")) {
     op_node <- step$node
-    right <- evaluate_expr(op_node$right, values = values, transform_env = transform_env)
+    right <- evaluate_expr(op_node$right, values = values, runtime = runtime)
 
     if (identical(op_node$op, "add")) {
       return(current_value + right)

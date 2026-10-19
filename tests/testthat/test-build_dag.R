@@ -23,7 +23,7 @@ test_that("build_dag returns a stable dependency plan", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
 
   expect_s3_class(dag, "DAGPlan")
   expect_equal(dag$dependencies$raw_a, character())
@@ -140,7 +140,7 @@ test_that("upstream_nodes returns ordered ancestors", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
 
   expect_equal(upstream_nodes(dag, "final_d"), c("raw_a", "raw_b", "mid_c"))
   expect_equal(upstream_nodes(dag, "final_d", include_self = TRUE), c("raw_a", "raw_b", "mid_c", "final_d"))
@@ -196,7 +196,7 @@ test_that("dag_edges exports dependency edges", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
   edges <- dag_edges(dag)
 
   expect_equal(names(edges), c("from", "to"))
@@ -230,7 +230,7 @@ test_that("dag_edges can include edge labels", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
   edges <- dag_edges(dag, include_labels = TRUE)
 
   expect_equal(names(edges), c("from", "to", "label"))
@@ -275,7 +275,7 @@ test_that("dag_subgraph returns focused nodes and edges", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
   sub <- dag_subgraph(dag, upstream_of = "final_d")
 
   expect_s3_class(sub, "DAGSubgraph")
@@ -303,7 +303,7 @@ test_that("expand_node_dag disentangles one node into ordered pipe steps", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
   expanded <- expand_node_dag(dag, "final_d")
 
   expect_s3_class(expanded, "ExpandedNodeDAG")
@@ -439,7 +439,7 @@ test_that("dag_to_visnetwork renders an expanded node graph", {
     )
   ))
 
-  dag <- build_dag(spec, transform_env = environment())
+  dag <- build_dag(spec, transforms = local_transforms())
   widget <- dag_to_visnetwork(expand_node_dag(dag, "mid_b"))
 
   expect_s3_class(widget, "visNetwork")

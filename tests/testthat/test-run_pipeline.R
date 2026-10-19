@@ -26,7 +26,7 @@ test_that("run_pipeline executes the full YAML-to-result flow", {
     inputs = list(
       raw_a = ts(5, start = c(2024, 1), frequency = 12)
     ),
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(result, "PipelineResult")
@@ -61,7 +61,7 @@ test_that("run_pipeline lets explicit outputs override YAML outputs", {
       raw_a = ts(5, start = c(2024, 1), frequency = 12)
     ),
     outputs = "raw_a",
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_equal(names(result$outputs), "raw_a")
@@ -96,7 +96,7 @@ test_that("execute_pipeline defaults to derived outputs and respects the progres
   result <- execute_pipeline(
     path = path,
     inputs = list(raw_a = ts(5, start = c(2024, 1), frequency = 12)),
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_equal(names(result$outputs), "derived_b")
@@ -183,7 +183,7 @@ test_that("execute_pipeline exposes collect mode through the file wrapper", {
         raw_a = ts(1, start = c(2024, 1), frequency = 12),
         raw_b = ts(5, start = c(2024, 1), frequency = 12)
       ),
-      transform_env = environment(),
+      transforms = local_transforms(),
       progress = FALSE,
       error_mode = "collect"
     ),
@@ -297,7 +297,7 @@ test_that("execute_pipeline runs the packaged CSV example end to end", {
   result <- execute_pipeline(
     path = example_path,
     inputs = gdp_construction_inputs,
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(result, "PipelineResult")

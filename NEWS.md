@@ -4,7 +4,22 @@
   definition order, with an optional `kind` filter (`"raw"` / `"derived"`). It
   accepts a `PipelineSpec`, `PipelinePlan`, or `PipelineResult`.
 
+* New option `tsflow.allowed_packages` restricts which packages namespaced
+  `pkg::fn` transforms may resolve from (#5).
+
 ## Breaking changes
+
+* Transforms are now passed as an explicit registry instead of being looked up
+  in the calling environment. `transform_env` is replaced by `transforms`, a
+  named list of functions, in `validate_pipeline()`, `build_dag()`,
+  `plan_pipeline()`, `evaluate_pipeline()`, `execute_pipeline()`,
+  `run_pipeline()`, `expand_node_result()` and `resolve_transform()`. Bare
+  transform names must be registered; namespaced `pkg::fn` transforms work
+  without registration (#5).
+
+* Evaluation hooks are passed explicitly as
+  `hooks = list(binary_op = , postprocess = )` instead of being discovered by
+  the names `tsflow_evaluate_binary_op` and `tsflow_postprocess_value` (#5).
 
 * Series names must now be valid R names that start with a letter and contain
   no `..` (e.g. `gdp.real` or `gdp_real`, not `gdp-real`, `2020_gdp` or

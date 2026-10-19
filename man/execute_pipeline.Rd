@@ -9,7 +9,8 @@ execute_pipeline(
   path,
   inputs,
   outputs = NULL,
-  transform_env = parent.frame(),
+  transforms = list(),
+  hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
   error_mode = c("fail", "collect")
 )
@@ -18,7 +19,8 @@ run_pipeline(
   path,
   inputs,
   outputs = NULL,
-  transform_env = parent.frame(),
+  transforms = list(),
+  hooks = list(),
   progress = getOption("tsflow.progress", TRUE),
   error_mode = c("fail", "collect")
 )
@@ -32,8 +34,12 @@ expected to be R `ts` objects keyed by raw series name.}
 \item{outputs}{Optional output names to materialize. When `NULL`, pipeline
 outputs are used if present.}
 
-\item{transform_env}{Environment used to resolve bare transform names during
-validation and execution.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names during validation and execution. Namespaced transforms such as
+`stats::lag` do not need to be registered.}
+
+\item{hooks}{Optional named list of evaluation hooks; see
+[evaluate_pipeline()].}
 
 \item{progress}{Whether to show execution progress in interactive sessions.
 Defaults to `getOption("tsflow.progress", TRUE)`.}

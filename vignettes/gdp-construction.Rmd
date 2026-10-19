@@ -140,6 +140,8 @@ a2q_sum <- function(ts_d, indicator, conversion = "sum") {
         method = "denton-cholette"
     )$values
 }
+
+transforms <- list(jsa = jsa, real_gr_nom = real_gr_nom, a2q_sum = a2q_sum)
 ```
 
 ## Plan The Pipeline
@@ -149,7 +151,7 @@ Plan the pipeline before running it:
 ```{r, eval = has_runtime_pkgs}
 plan <- plan_pipeline(
     path = example_path,
-    transform_env = environment()
+    transforms = transforms
 )
 
 plan
@@ -176,7 +178,7 @@ inputs <- gdp_construction_inputs
 result <- execute_pipeline(
     path = example_path,
     inputs = inputs,
-    transform_env = environment()
+    transforms = transforms
 )
 ```
 
@@ -211,7 +213,7 @@ constr_nom_result <- execute_pipeline(
     path = example_path,
     inputs = inputs,
     outputs = "construction.nominal.quarterly",
-    transform_env = environment()
+    transforms = transforms
 )
 
 constr_nom_result$plan$order
@@ -230,7 +232,7 @@ output <- execute_pipeline(
   path = example_path,
   inputs = inputs,
   outputs = "construction.nominal.quarterly",
-  transform_env = environment()
+  transforms = transforms
 )
 
 output$plan$order

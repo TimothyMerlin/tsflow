@@ -25,6 +25,7 @@ Suggests:
     tempdisagg,
     testthat (>= 3.0.0),
     visNetwork,
+    withr,
     xts,
     zoo
 VignetteBuilder: knitr

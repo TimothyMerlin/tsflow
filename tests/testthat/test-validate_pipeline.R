@@ -48,7 +48,7 @@ test_that("validate_pipeline hints at literals for unknown refs in step args", {
     )
   ))
 
-  err <- tryCatch(validate_pipeline(spec, transform_env = environment()), error = identity)
+  err <- tryCatch(validate_pipeline(spec, transforms = local_transforms()), error = identity)
   expect_match(conditionMessage(err), "references unknown series: uniform", fixed = TRUE)
   expect_match(conditionMessage(err), "use `{literal: uniform}`", fixed = TRUE)
 })
@@ -156,7 +156,7 @@ test_that("validate_pipeline resolves transform names from R", {
     )
   ))
 
-  expect_invisible(validate_pipeline(spec, transform_env = environment()))
+  expect_invisible(validate_pipeline(spec, transforms = local_transforms()))
 })
 
 test_that("validate_pipeline resolves namespaced transform names", {
@@ -191,7 +191,7 @@ test_that("validate_pipeline rejects unresolved transform names", {
   ))
 
   expect_error(
-    validate_pipeline(spec, transform_env = baseenv()),
+    validate_pipeline(spec, transforms = list()),
     "uses unresolved transform `missing_scale`"
   )
 })

@@ -4,12 +4,7 @@
 \alias{plan_pipeline}
 \title{Plan a Pipeline Without Executing It}
 \usage{
-plan_pipeline(
-  path,
-  outputs = NULL,
-  transform_env = parent.frame(),
-  allow_cycles = FALSE
-)
+plan_pipeline(path, outputs = NULL, transforms = list(), allow_cycles = FALSE)
 }
 \arguments{
 \item{path}{Path to a pipeline definition file.}
@@ -17,8 +12,9 @@ plan_pipeline(
 \item{outputs}{Optional output names to plan for. When `NULL`, pipeline
 outputs are used if present, otherwise all nodes are included.}
 
-\item{transform_env}{Environment used to resolve bare transform names during
-validation.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names during validation. Namespaced transforms such as `stats::lag` do not
+need to be registered.}
 
 \item{allow_cycles}{Whether to retain cycle nodes in the planned DAG instead
 of failing when a dependency cycle is detected.}

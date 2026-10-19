@@ -60,7 +60,7 @@ test_that("series_names accepts a PipelinePlan", {
     con = path
   )
 
-  plan <- plan_pipeline(path = path, transform_env = environment())
+  plan <- plan_pipeline(path = path, transforms = local_transforms())
 
   expect_equal(series_names(plan), c("raw_a", "derived_b"))
   expect_equal(series_names(plan, kind = "derived"), "derived_b")
@@ -86,7 +86,7 @@ test_that("series_names accepts a PipelineResult", {
   result <- evaluate_pipeline(
     pipeline = spec,
     inputs = list(raw_a = ts(5, start = c(2024, 1), frequency = 12)),
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(result, "PipelineResult")

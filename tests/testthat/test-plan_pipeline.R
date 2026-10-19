@@ -23,7 +23,7 @@ test_that("plan_pipeline returns a non-executing pipeline plan", {
 
   plan <- plan_pipeline(
     path = path,
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(plan, "PipelinePlan")
@@ -57,7 +57,7 @@ test_that("plan_pipeline lets explicit outputs override YAML outputs", {
   plan <- plan_pipeline(
     path = path,
     outputs = "raw_a",
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_equal(plan$outputs, "raw_a")
@@ -85,7 +85,7 @@ test_that("plan_pipeline validates requested outputs and transform resolution", 
   expect_error(
     plan_pipeline(
       path = path,
-      transform_env = baseenv()
+      transforms = list()
     ),
     "missing_scale"
   )
@@ -113,7 +113,7 @@ test_that("plan_pipeline validates requested outputs and transform resolution", 
     plan_pipeline(
       path = valid_path,
       outputs = "missing_output",
-      transform_env = environment()
+      transforms = local_transforms()
     ),
     "planned outputs are not present in the pipeline"
   )
@@ -144,7 +144,7 @@ test_that("print.PipelinePlan shows a concise summary", {
 
   plan <- plan_pipeline(
     path = path,
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   output <- paste(capture.output(print(plan)), collapse = "\n")
@@ -170,7 +170,7 @@ test_that("plan_pipeline plans wide CSV mappings through the normal DAG path", {
 
   plan <- plan_pipeline(
     path = path,
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(plan, "PipelinePlan")
@@ -195,7 +195,7 @@ test_that("plan_pipeline can retain cycle nodes for debugging", {
 
   plan <- plan_pipeline(
     path = path,
-    transform_env = environment(),
+    transforms = local_transforms(),
     allow_cycles = TRUE
   )
 
@@ -232,7 +232,7 @@ test_that("plan_pipeline formats vector vars in node pipeline summaries", {
 
   plan <- plan_pipeline(
     path = path,
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_equal(plan$dag$node_pipeline$derived_b$steps, "a2q_sum(end=c(2026, 4))")
