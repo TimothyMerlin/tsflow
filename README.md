@@ -58,9 +58,12 @@ execution.
 Plan the pipeline first:
 
 ```r
+# Transform functions as defined in vignette("gdp-construction")
+transforms <- list(jsa = jsa, real_gr_nom = real_gr_nom, a2q_sum = a2q_sum)
+
 plan <- plan_pipeline(
   path = "inst/examples/gdp_construction.csv",
-  transform_env = environment()
+  transforms = transforms
 )
 
 plan
@@ -75,7 +78,7 @@ data("gdp_construction_inputs", package = "tsflow")
 result <- execute_pipeline(
   path = "inst/examples/gdp_construction.csv",
   inputs = gdp_construction_inputs,
-  transform_env = environment()
+  transforms = transforms
 )
 ```
 
@@ -97,14 +100,16 @@ future::plan(future::multisession, workers = 2)
 result <- execute_pipeline(
   path = "inst/examples/gdp_construction.csv",
   inputs = gdp_construction_inputs,
-  transform_env = environment(),
+  transforms = transforms,
   outputs = "construction.nominal.quarterly"
 )
 ```
 
 Transforms can be referenced as bare names such as `jsa` or namespaced
-functions such as `stats::lag`. Bare names are resolved from `transform_env`;
-namespaced functions are resolved directly from the package namespace.
+functions such as `stats::lag`. Bare names must be registered in the
+`transforms` list; namespaced functions are resolved directly from the package
+namespace. To restrict which packages a pipeline may call, set
+`options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 
 ## Execution Semantics
 

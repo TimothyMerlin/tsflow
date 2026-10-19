@@ -13,7 +13,7 @@
 \alias{write_dag_dot}
 \title{Build and Query a Pipeline DAG}
 \usage{
-build_dag(pipeline, transform_env = parent.frame(), allow_cycles = FALSE)
+build_dag(pipeline, transforms = list(), allow_cycles = FALSE)
 
 upstream_nodes(dag, node, include_self = FALSE)
 
@@ -75,8 +75,9 @@ write_dag_dot(
 \arguments{
 \item{pipeline}{A `PipelineSpec` object.}
 
-\item{transform_env}{Environment used to resolve bare transform names while
-validating the pipeline.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names while validating the pipeline and labelling edges. Namespaced
+transforms such as `stats::lag` do not need to be registered.}
 
 \item{allow_cycles}{Whether to return a graph annotated with cycle nodes
 instead of failing when a dependency cycle is detected.}

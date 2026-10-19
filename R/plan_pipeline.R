@@ -6,8 +6,9 @@
 #' @param path Path to a pipeline definition file.
 #' @param outputs Optional output names to plan for. When `NULL`, pipeline
 #'   outputs are used if present, otherwise all nodes are included.
-#' @param transform_env Environment used to resolve bare transform names during
-#'   validation.
+#' @param transforms A named list of functions used to resolve bare transform
+#'   names during validation. Namespaced transforms such as `stats::lag` do not
+#'   need to be registered.
 #' @param allow_cycles Whether to retain cycle nodes in the planned DAG instead
 #'   of failing when a dependency cycle is detected.
 #'
@@ -16,13 +17,13 @@
 #' @export
 plan_pipeline <- function(path,
                           outputs = NULL,
-                          transform_env = parent.frame(),
+                          transforms = list(),
                           allow_cycles = FALSE) {
   parsed <- read_pipeline(path)
   pipeline <- normalize_pipeline(parsed)
   dag <- build_dag(
     pipeline,
-    transform_env = transform_env,
+    transforms = transforms,
     allow_cycles = allow_cycles
   )
   planned_outputs <- outputs %||% pipeline$outputs %||% default_output_names(pipeline, dag)

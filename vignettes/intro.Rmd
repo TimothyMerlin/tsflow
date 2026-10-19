@@ -64,8 +64,10 @@ cat(paste(readLines(pipeline_path), collapse = "\n"))
 
 ## Define Transforms
 
-Transforms are ordinary R functions. `tsflow` resolves bare transform names from
-the `transform_env` that you pass to planning and execution.
+Transforms are ordinary R functions. Register the ones a pipeline uses by name
+in a `transforms` list and pass it to planning and execution. Namespaced
+functions such as `stats::lag` can be used in a pipeline without registering
+them.
 
 ```{r}
 scale <- function(x, factor) {
@@ -75,6 +77,8 @@ scale <- function(x, factor) {
 add_constant <- function(x, value) {
     x + value
 }
+
+transforms <- list(scale = scale, add_constant = add_constant)
 ```
 
 ## Plan The Pipeline
@@ -84,7 +88,7 @@ Planning reads the file, validates it, and builds a dependency DAG.
 ```{r}
 plan <- plan_pipeline(
     path = pipeline_path,
-    transform_env = environment()
+    transforms = transforms
 )
 
 plan
@@ -157,7 +161,7 @@ inputs <- list(
 result <- execute_pipeline(
     path = pipeline_path,
     inputs = inputs,
-    transform_env = environment()
+    transforms = transforms
 )
 
 result$outputs$growth_index
@@ -205,6 +209,8 @@ explode <- function(x) {
     stop("kaboom", call. = FALSE)
 }
 
+failing_transforms <- c(transforms, list(explode = explode))
+
 failing_path <- tempfile(fileext = ".yml")
 
 writeLines(
@@ -233,7 +239,7 @@ writeLines(
 failed_result <- suppressWarnings(execute_pipeline(
     path = failing_path,
     inputs = list(raw_b = stats::ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 4)),
-    transform_env = environment(),
+    transforms = failing_transforms,
     error_mode = "collect",
     progress = FALSE
 ))
@@ -241,7 +247,7 @@ failed_result <- suppressWarnings(execute_pipeline(
 expanded_failed <- expand_node_result(
     failed_result,
     "broken_series",
-    transform_env = environment()
+    transforms = failing_transforms
 )
 
 expanded_failed$failed_step

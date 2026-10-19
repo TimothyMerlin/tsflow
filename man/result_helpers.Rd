@@ -7,7 +7,7 @@
 \alias{result_subgraph}
 \title{Inspect an Executed Pipeline Result}
 \usage{
-expand_node_result(result, node, transform_env = parent.frame())
+expand_node_result(result, node, transforms = list(), hooks = list())
 
 result_path(result, node, include_self = TRUE)
 
@@ -18,8 +18,12 @@ result_subgraph(result, node, include_self = TRUE)
 
 \item{node}{A node name present in the executed DAG.}
 
-\item{transform_env}{Environment used to resolve bare transform names during
-step-by-step replay of one expanded node.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names during step-by-step replay of one expanded node. Use the same
+registry that produced `result`.}
+
+\item{hooks}{Optional named list of evaluation hooks used during replay; see
+[evaluate_pipeline()].}
 
 \item{include_self}{Whether to include `node` in the returned result.}
 }

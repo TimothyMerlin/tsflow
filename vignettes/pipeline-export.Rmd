@@ -101,7 +101,9 @@ scale <- function(x, factor) {
     x * factor
 }
 
-plan <- plan_pipeline(yaml_path, transform_env = environment())
+transforms <- list(scale = scale)
+
+plan <- plan_pipeline(yaml_path, transforms = transforms)
 
 plan
 head(plan$dag$order)
@@ -118,7 +120,7 @@ inputs <- list(raw_a = stats::ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 
 result <- execute_pipeline(
     path = yaml_path,
     inputs = inputs,
-    transform_env = environment()
+    transforms = transforms
 )
 
 result$outputs$derived_a

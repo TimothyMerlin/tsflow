@@ -8,9 +8,11 @@
 #'   R `ts` or `xts` objects keyed by raw series name.
 #' @param outputs Optional output names to materialize. When provided, execution
 #'   is pruned to the upstream subgraph required to compute those outputs.
-#' @param transform_env Environment used to resolve bare transform names during
-#'   execution. Namespaced transforms such as `stats::lag` are resolved
-#'   directly.
+#' @param transforms A named list of functions used to resolve bare transform
+#'   names during validation and execution. Namespaced transforms such as
+#'   `stats::lag` are resolved directly and do not need to be registered.
+#' @param hooks Optional named list of evaluation hooks for advanced runtimes.
+#'   Supported hooks are `binary_op` and `postprocess`; see Details.
 #' @param progress Whether to show execution progress in interactive sessions.
 #'   Defaults to `getOption("tsflow.progress", TRUE)`.
 #' @param error_mode Execution failure mode. `"fail"` stops on the first node
@@ -20,17 +22,14 @@
 #' @return A `PipelineResult` object containing the DAG plan, all computed
 #'   values, the materialized outputs, and optional error metadata.
 #'
-#' @details Transform names may be authored either as explicit namespaced
-#'   references such as `stats::lag` or as bare names resolved from
-#'   `transform_env`. The recommended authored form is `pkg::fn`.
+#' @details Transform names may be authored either as namespaced references
+#'   such as `stats::lag` or as bare names registered in `transforms`, e.g.
+#'   `transforms = list(scale = scale)`.
 #'
-#'   `transform_env` may also define optional evaluation hooks for advanced
-#'   runtimes. If a function named `tsflow_evaluate_binary_op(op, left, right)`
-#'   is present, tsflow uses it to evaluate DAG binary operations instead of the
-#'   default arithmetic dispatch. If a function named
-#'   `tsflow_postprocess_value(result, context)` is present, tsflow calls it on
-#'   transform results after the underlying transform function returns. When
-#'   these hooks are absent, default evaluation behavior is unchanged.
+#'   `hooks$binary_op(op, left, right)`, when supplied, evaluates `add`, `sub`,
+#'   `mul` and `div` steps instead of the default arithmetic.
+#'   `hooks$postprocess(result, context)`, when supplied, is called on every
+#'   transform result after the transform function returns.
 #'
 #'   In interactive sessions, `evaluate_pipeline()` uses `progressr`
 #'   automatically when it is installed. Existing user-configured `progressr`
@@ -41,11 +40,13 @@
 evaluate_pipeline <- function(pipeline,
                               inputs,
                               outputs = pipeline$outputs %||% NULL,
-                              transform_env = parent.frame(),
+                              transforms = list(),
+                              hooks = list(),
                               progress = getOption("tsflow.progress", TRUE),
                               error_mode = c("fail", "collect")) {
   error_mode <- match.arg(error_mode)
-  dag <- build_dag(pipeline, transform_env = transform_env)
+  runtime <- new_runtime(transforms = transforms, hooks = hooks)
+  dag <- build_dag(pipeline, transforms = transforms)
 
   if (!is.null(outputs)) {
     unknown_outputs <- setdiff(unique(outputs), dag$nodes)
@@ -70,7 +71,7 @@ evaluate_pipeline <- function(pipeline,
     values = values,
     series_map = series_map,
     inputs = inputs,
-    transform_env = transform_env,
+    runtime = runtime,
     progress = progress,
     error_mode = error_mode
   )
@@ -162,7 +163,7 @@ run_with_execution_progress <- function(execution_dag,
                                         values,
                                         series_map,
                                         inputs,
-                                        transform_env,
+                                        runtime,
                                         progress,
                                         error_mode) {
   if (!is_scalar_flag(progress)) {
@@ -179,7 +180,7 @@ run_with_execution_progress <- function(execution_dag,
         values = values,
         series_map = series_map,
         inputs = inputs,
-        transform_env = transform_env,
+        runtime = runtime,
         tick = function(name) tick(message = sprintf("evaluated %s", name)),
         error_mode = error_mode
       )
@@ -200,7 +201,7 @@ run_with_execution_progress <- function(execution_dag,
     values = values,
     series_map = series_map,
     inputs = inputs,
-    transform_env = transform_env,
+    runtime = runtime,
     tick = function(name) invisible(NULL),
     error_mode = error_mode
   )
@@ -210,7 +211,7 @@ evaluate_execution_nodes <- function(execution_dag,
                                      values,
                                      series_map,
                                      inputs,
-                                     transform_env,
+                                     runtime,
                                      tick,
                                      error_mode) {
   errors <- list()
@@ -224,7 +225,7 @@ evaluate_execution_nodes <- function(execution_dag,
         values = values,
         series_map = series_map,
         inputs = inputs,
-        transform_env = transform_env
+        runtime = runtime
       )
 
       for (name in batch) {
@@ -248,7 +249,7 @@ evaluate_execution_nodes <- function(execution_dag,
       values = values,
       series_map = series_map,
       inputs = inputs,
-      transform_env = transform_env
+      runtime = runtime
     )
 
     for (name in batch) {
@@ -268,7 +269,7 @@ evaluate_execution_batch <- function(batch,
                                      values,
                                      series_map,
                                      inputs,
-                                     transform_env) {
+                                     runtime) {
   if (length(batch) > 1L &&
       requireNamespace("future.apply", quietly = TRUE) &&
       requireNamespace("future", quietly = TRUE) &&
@@ -281,7 +282,7 @@ evaluate_execution_batch <- function(batch,
           series = series_map[[name]],
           values = values,
           inputs = inputs,
-          transform_env = transform_env
+          runtime = runtime
         )
       }
     )
@@ -297,7 +298,7 @@ evaluate_execution_batch <- function(batch,
         series = series_map[[name]],
         values = values,
         inputs = inputs,
-        transform_env = transform_env
+        runtime = runtime
       )
     }
   )
@@ -310,7 +311,7 @@ evaluate_execution_batch_collecting <- function(batch,
                                                 values,
                                                 series_map,
                                                 inputs,
-                                                transform_env) {
+                                                runtime) {
   if (length(batch) > 1L &&
       requireNamespace("future.apply", quietly = TRUE) &&
       requireNamespace("future", quietly = TRUE) &&
@@ -323,7 +324,7 @@ evaluate_execution_batch_collecting <- function(batch,
           series = series_map[[name]],
           values = values,
           inputs = inputs,
-          transform_env = transform_env,
+          runtime = runtime,
           dependencies = execution_dag$dependencies[[name]] %||% character()
         )
       }
@@ -340,7 +341,7 @@ evaluate_execution_batch_collecting <- function(batch,
         series = series_map[[name]],
         values = values,
         inputs = inputs,
-        transform_env = transform_env,
+        runtime = runtime,
         dependencies = execution_dag$dependencies[[name]] %||% character()
       )
     }
@@ -353,7 +354,7 @@ evaluate_series_node <- function(name,
                                  series,
                                  values,
                                  inputs,
-                                 transform_env) {
+                                 runtime) {
   tryCatch(
     {
       if (identical(series$kind, "raw")) {
@@ -362,7 +363,7 @@ evaluate_series_node <- function(name,
         evaluate_expr(
           expr = series$expression,
           values = values,
-          transform_env = transform_env
+          runtime = runtime
         )
       }
     },
@@ -380,7 +381,7 @@ evaluate_series_node_collecting <- function(name,
                                             series,
                                             values,
                                             inputs,
-                                            transform_env,
+                                            runtime,
                                             dependencies) {
   missing_deps <- dependencies[!dependencies %in% names(values) | vapply(values[dependencies], is.null, logical(1))]
   if (length(missing_deps) > 0L) {
@@ -399,7 +400,7 @@ evaluate_series_node_collecting <- function(name,
         evaluate_expr(
           expr = series$expression,
           values = values,
-          transform_env = transform_env
+          runtime = runtime
         )
       }
     ),
@@ -533,7 +534,7 @@ resolve_input_series <- function(name, inputs) {
   value
 }
 
-evaluate_expr <- function(expr, values, transform_env) {
+evaluate_expr <- function(expr, values, runtime) {
   if (inherits(expr, "RefNode")) {
     if (!(expr$name %in% names(values)) || is.null(values[[expr$name]])) {
       fail(sprintf("referenced value `%s` is not available", expr$name))
@@ -551,12 +552,12 @@ evaluate_expr <- function(expr, values, transform_env) {
       args = expr$args,
       kwargs = expr$kwargs,
       values = values,
-      transform_env = transform_env
+      runtime = runtime
     ))
   }
 
   if (inherits(expr, "PipeNode")) {
-    input_value <- evaluate_expr(expr$input, values = values, transform_env = transform_env)
+    input_value <- evaluate_expr(expr$input, values = values, runtime = runtime)
     call_node <- expr$call
     return(invoke_transform(
       transform_name = call_node$name,
@@ -564,18 +565,18 @@ evaluate_expr <- function(expr, values, transform_env) {
       args = call_node$args,
       kwargs = call_node$kwargs,
       values = values,
-      transform_env = transform_env
+      runtime = runtime
     ))
   }
 
   if (inherits(expr, "BinaryOpNode")) {
-    left <- evaluate_expr(expr$left, values = values, transform_env = transform_env)
-    right <- evaluate_expr(expr$right, values = values, transform_env = transform_env)
+    left <- evaluate_expr(expr$left, values = values, runtime = runtime)
+    right <- evaluate_expr(expr$right, values = values, runtime = runtime)
     return(evaluate_binary_op(
       op = expr$op,
       left = left,
       right = right,
-      transform_env = transform_env
+      runtime = runtime
     ))
   }
 
@@ -589,7 +590,7 @@ invoke_transform <- function(transform_name,
                              args,
                              kwargs,
                              values,
-                             transform_env,
+                             runtime,
                              input_value) {
   # Pipe steps always pass `input_value`, even when the upstream step returned
   # NULL, so only a missing argument means there is no piped value.
@@ -600,13 +601,13 @@ invoke_transform <- function(transform_name,
 
   tryCatch(
     {
-      fn <- resolve_transform(transform_name, transform_env = transform_env)
-      evaluated_args <- lapply(args, evaluate_expr, values = values, transform_env = transform_env)
-      evaluated_kwargs <- lapply(kwargs, evaluate_expr, values = values, transform_env = transform_env)
+      fn <- resolve_transform(transform_name, transforms = runtime$transforms)
+      evaluated_args <- lapply(args, evaluate_expr, values = values, runtime = runtime)
+      evaluated_kwargs <- lapply(kwargs, evaluate_expr, values = values, runtime = runtime)
       call_args <- c(if (has_input) list(input_value), evaluated_args, evaluated_kwargs)
       postprocess_evaluated_value(
         do.call(fn, call_args),
-        transform_env = transform_env,
+        runtime = runtime,
         context = list(
           kind = "transform",
           transform_name = transform_name,
@@ -626,10 +627,9 @@ invoke_transform <- function(transform_name,
   )
 }
 
-evaluate_binary_op <- function(op, left, right, transform_env) {
-  if (exists("tsflow_evaluate_binary_op", envir = transform_env, mode = "function", inherits = TRUE)) {
-    hook <- get("tsflow_evaluate_binary_op", envir = transform_env, mode = "function", inherits = TRUE)
-    return(hook(op = op, left = left, right = right))
+evaluate_binary_op <- function(op, left, right, runtime) {
+  if (!is.null(runtime$hooks$binary_op)) {
+    return(runtime$hooks$binary_op(op = op, left = left, right = right))
   }
 
   if (identical(op, "add")) {
@@ -648,11 +648,10 @@ evaluate_binary_op <- function(op, left, right, transform_env) {
   fail(sprintf("unsupported binary op `%s`", op))
 }
 
-postprocess_evaluated_value <- function(result, transform_env, context) {
-  if (!exists("tsflow_postprocess_value", envir = transform_env, mode = "function", inherits = TRUE)) {
+postprocess_evaluated_value <- function(result, runtime, context) {
+  if (is.null(runtime$hooks$postprocess)) {
     return(result)
   }
 
-  hook <- get("tsflow_postprocess_value", envir = transform_env, mode = "function", inherits = TRUE)
-  hook(result = result, context = context)
+  runtime$hooks$postprocess(result = result, context = context)
 }

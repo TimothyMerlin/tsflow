@@ -4,17 +4,27 @@
 \alias{resolve_transform}
 \title{Resolve Transform Functions}
 \usage{
-resolve_transform(name, transform_env = parent.frame())
+resolve_transform(name, transforms = list())
 }
 \arguments{
-\item{name}{A bare function name or namespaced function reference such as
+\item{name}{A bare transform name or namespaced function reference such as
 `stats::lag`.}
 
-\item{transform_env}{Environment used to resolve bare function names.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names.}
 }
 \value{
 An R function.
 }
 \description{
-Resolves transform references in the R-first MVP runtime.
+Resolves a transform name used in a pipeline to an R function.
+}
+\details{
+Bare names such as `scale` are looked up in the `transforms` registry.
+Namespaced names such as `stats::lag` are resolved directly from the
+package and do not need to be registered.
+
+Any installed package may be used for namespaced transforms. To restrict
+them, for example when running pipeline files from other people, set
+`options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 }

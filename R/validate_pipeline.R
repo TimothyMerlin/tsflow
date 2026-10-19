@@ -8,14 +8,15 @@
 #' `..`.
 #'
 #' @param pipeline A `PipelineSpec` object.
-#' @param transform_env Environment used to resolve bare transform names during
-#'   validation. Namespaced transforms such as `stats::lag` are resolved
-#'   directly.
+#' @param transforms A named list of functions used to resolve bare transform
+#'   names. Namespaced transforms such as `stats::lag` are resolved directly
+#'   and do not need to be registered.
 #'
 #' @return The input pipeline, invisibly, if validation succeeds.
 #' @export
-validate_pipeline <- function(pipeline, transform_env = parent.frame()) {
+validate_pipeline <- function(pipeline, transforms = list()) {
   assert_inherits(pipeline, "PipelineSpec", "pipeline")
+  assert_transforms(transforms)
 
   series <- pipeline$series
   if (!is.list(series) || length(series) == 0L) {
@@ -84,7 +85,7 @@ validate_pipeline <- function(pipeline, transform_env = parent.frame()) {
       fail(msg)
     }
 
-    validate_transform_names(item, transform_env)
+    validate_transform_names(item, transforms)
   }
 
   invisible(pipeline)
@@ -111,7 +112,7 @@ validate_series_names <- function(series_names) {
   ))
 }
 
-validate_transform_names <- function(series, transform_env) {
+validate_transform_names <- function(series, transforms) {
   transform_names <- collect_transform_names(series$expression)
   if (length(transform_names) == 0L) {
     return(invisible(NULL))
@@ -119,7 +120,7 @@ validate_transform_names <- function(series, transform_env) {
 
   for (name in transform_names) {
     tryCatch(
-      resolve_transform(name, transform_env = transform_env),
+      resolve_transform(name, transforms = transforms),
       error = function(e) {
         fail(sprintf(
           "series `%s` uses unresolved transform `%s`: %s",

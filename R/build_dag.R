@@ -6,8 +6,9 @@
 #' you need a Graphviz export.
 #'
 #' @param pipeline A `PipelineSpec` object.
-#' @param transform_env Environment used to resolve bare transform names while
-#'   validating the pipeline.
+#' @param transforms A named list of functions used to resolve bare transform
+#'   names while validating the pipeline and labelling edges. Namespaced
+#'   transforms such as `stats::lag` do not need to be registered.
 #' @param allow_cycles Whether to return a graph annotated with cycle nodes
 #'   instead of failing when a dependency cycle is detected.
 #' @param dag A `DAGPlan` object.
@@ -55,9 +56,9 @@
 #' @importFrom stats setNames
 #' @export
 build_dag <- function(pipeline,
-                      transform_env = parent.frame(),
+                      transforms = list(),
                       allow_cycles = FALSE) {
-  validate_pipeline(pipeline, transform_env = transform_env)
+  validate_pipeline(pipeline, transforms = transforms)
 
   if (!is_scalar_flag(allow_cycles)) {
     fail("`allow_cycles` must be TRUE or FALSE")
@@ -99,7 +100,7 @@ build_dag <- function(pipeline,
     if (identical(item$kind, "derived")) {
       edge_labels[[item$name]] <- describe_expression_edges(
         item$expression,
-        transform_env = transform_env
+        transforms = transforms
       )
     }
   }
@@ -1017,12 +1018,12 @@ write_dag_dot <- function(dag,
   invisible(path)
 }
 
-describe_expression_edges <- function(expr, transform_env) {
-  labels <- collect_edge_labels(expr, transform_env = transform_env)
+describe_expression_edges <- function(expr, transforms) {
+  labels <- collect_edge_labels(expr, transforms = transforms)
   labels[!duplicated(names(labels))]
 }
 
-collect_edge_labels <- function(expr, context = NULL, transform_env, positional_offset = 0L) {
+collect_edge_labels <- function(expr, context = NULL, transforms, positional_offset = 0L) {
   if (inherits(expr, "RefNode")) {
     return(stats::setNames(context %||% "input", expr$name))
   }
@@ -1033,7 +1034,7 @@ collect_edge_labels <- function(expr, context = NULL, transform_env, positional_
 
   if (inherits(expr, "CallNode")) {
     labels <- setNames(character(), character())
-    formal_names <- resolve_transform_formals(expr$name, transform_env = transform_env)
+    formal_names <- resolve_transform_formals(expr$name, transforms = transforms)
 
     if (length(expr$args) > 0L) {
       for (idx in seq_along(expr$args)) {
@@ -1050,7 +1051,7 @@ collect_edge_labels <- function(expr, context = NULL, transform_env, positional_
                 fallback = sprintf("arg %d", idx)
               )
             ),
-            transform_env = transform_env,
+            transforms = transforms,
             positional_offset = 0L
           )
         )
@@ -1064,7 +1065,7 @@ collect_edge_labels <- function(expr, context = NULL, transform_env, positional_
           collect_edge_labels(
             expr$kwargs[[key]],
             sprintf("%s: %s", expr$name, key),
-            transform_env = transform_env,
+            transforms = transforms,
             positional_offset = 0L
           )
         )
@@ -1075,22 +1076,22 @@ collect_edge_labels <- function(expr, context = NULL, transform_env, positional_
   }
 
   if (inherits(expr, "PipeNode")) {
-    formal_names <- resolve_transform_formals(expr$call$name, transform_env = transform_env)
+    formal_names <- resolve_transform_formals(expr$call$name, transforms = transforms)
     return(c(
       collect_edge_labels(
         expr$input,
         sprintf("%s: %s", expr$call$name, formal_label_at(formal_names, 1L, fallback = "input")),
-        transform_env = transform_env,
+        transforms = transforms,
         positional_offset = 0L
       ),
-      collect_edge_labels(expr$call, transform_env = transform_env, positional_offset = 1L)
+      collect_edge_labels(expr$call, transforms = transforms, positional_offset = 1L)
     ))
   }
 
   if (inherits(expr, "BinaryOpNode")) {
     return(c(
-      collect_edge_labels(expr$left, sprintf("%s: %s", expr$op, "left"), transform_env = transform_env, positional_offset = 0L),
-      collect_edge_labels(expr$right, sprintf("%s: %s", expr$op, "right"), transform_env = transform_env, positional_offset = 0L)
+      collect_edge_labels(expr$left, sprintf("%s: %s", expr$op, "left"), transforms = transforms, positional_offset = 0L),
+      collect_edge_labels(expr$right, sprintf("%s: %s", expr$op, "right"), transforms = transforms, positional_offset = 0L)
     ))
   }
 
@@ -1100,9 +1101,9 @@ collect_edge_labels <- function(expr, context = NULL, transform_env, positional_
   ))
 }
 
-resolve_transform_formals <- function(transform_name, transform_env) {
+resolve_transform_formals <- function(transform_name, transforms) {
   fn <- tryCatch(
-    resolve_transform(transform_name, transform_env = transform_env),
+    resolve_transform(transform_name, transforms = transforms),
     error = function(e) NULL
   )
 

@@ -37,7 +37,7 @@ test_that("evaluate_pipeline executes raw and derived nodes end to end", {
       raw_a = ts(5, start = c(2024, 1), frequency = 12),
       raw_b = ts(4, start = c(2024, 1), frequency = 12)
     ),
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(result, "PipelineResult")
@@ -71,7 +71,7 @@ test_that("evaluate_pipeline pipes a NULL step result as the first argument", {
   result <- evaluate_pipeline(
     pipeline = spec,
     inputs = list(raw_a = ts(1:3)),
-    transform_env = environment(),
+    transforms = local_transforms(),
     progress = FALSE
   )
 
@@ -99,13 +99,53 @@ test_that("expand_node_result pipes a NULL step result as the first argument", {
   result <- evaluate_pipeline(
     pipeline = spec,
     inputs = list(raw_a = ts(1:3)),
-    transform_env = environment(),
+    transforms = local_transforms(),
     progress = FALSE
   )
-  expanded <- expand_node_result(result, "b", transform_env = environment())
+  expanded <- expand_node_result(result, "b", transforms = local_transforms())
 
   expect_null(expanded$failed_step)
   expect_equal(expanded$values$b, list(x = NULL, k = "second"))
+})
+
+test_that("evaluate_pipeline applies binary_op and postprocess hooks", {
+  double_it <- function(x) x * 2
+
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "injected")),
+      list(
+        name = "b",
+        steps = list(
+          list(input = "raw_a"),
+          list(call = list(name = "double_it")),
+          list(op = list(type = "add", right = 1))
+        )
+      )
+    )
+  ))
+
+  seen <- character()
+  result <- evaluate_pipeline(
+    pipeline = spec,
+    inputs = list(raw_a = ts(1:3)),
+    transforms = list(double_it = double_it),
+    hooks = list(
+      binary_op = function(op, left, right) {
+        seen <<- c(seen, op)
+        left - right
+      },
+      postprocess = function(result, context) {
+        seen <<- c(seen, context$transform_name)
+        result * 10
+      }
+    ),
+    progress = FALSE
+  )
+
+  # (1:3 * 2) * 10 via postprocess, then "add" replaced by subtraction
+  expect_equal(as.numeric(result$values$b), c(19, 39, 59))
+  expect_equal(seen, c("double_it", "add"))
 })
 
 test_that("evaluate_pipeline materializes all values when outputs are absent", {
@@ -156,11 +196,11 @@ test_that("expand_node_result replays a node step by step", {
   result <- evaluate_pipeline(
     pipeline = spec,
     inputs = list(raw_a = ts(6, start = c(2024, 1), frequency = 12)),
-    transform_env = environment(),
+    transforms = local_transforms(),
     progress = FALSE
   )
 
-  expanded <- expand_node_result(result, "final_d", transform_env = environment())
+  expanded <- expand_node_result(result, "final_d", transforms = local_transforms())
 
   expect_s3_class(expanded, "ExpandedNodeResult")
   expect_null(expanded$failed_step)
@@ -220,7 +260,7 @@ test_that("evaluate_pipeline prunes execution to the requested output subgraph",
       raw_b = ts(4, start = c(2024, 1), frequency = 12)
     ),
     outputs = "left_c",
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_equal(result$plan$order, c("raw_a", "left_c"))
@@ -270,7 +310,7 @@ test_that("evaluate_pipeline supports parallel frontier execution", {
       raw_a = ts(3, start = c(2024, 1), frequency = 12),
       raw_b = ts(4, start = c(2024, 1), frequency = 12)
     ),
-    transform_env = environment(),
+    transforms = local_transforms(),
     progress = FALSE
   )
 
@@ -299,7 +339,7 @@ test_that("evaluate_pipeline validates requested outputs and raw inputs at runti
       pipeline = spec,
       inputs = list(raw_a = ts(1, start = c(2024, 1), frequency = 12)),
       outputs = "missing_output",
-      transform_env = environment()
+      transforms = local_transforms()
     ),
     "requested outputs are not present in the pipeline"
   )
@@ -308,7 +348,7 @@ test_that("evaluate_pipeline validates requested outputs and raw inputs at runti
     evaluate_pipeline(
       pipeline = spec,
       inputs = list(),
-      transform_env = environment()
+      transforms = local_transforms()
     ),
     "raw input `raw_a` is not available in `inputs`"
   )
@@ -317,7 +357,7 @@ test_that("evaluate_pipeline validates requested outputs and raw inputs at runti
     evaluate_pipeline(
       pipeline = spec,
       inputs = list(raw_a = 1),
-      transform_env = environment()
+      transforms = local_transforms()
     ),
     "raw input `raw_a` must be an R `ts` or `xts` object"
   )
@@ -325,7 +365,8 @@ test_that("evaluate_pipeline validates requested outputs and raw inputs at runti
   expect_error(
     evaluate_pipeline(
       pipeline = spec,
-      inputs = 1
+      inputs = 1,
+      transforms = local_transforms()
     ),
     "`inputs` must be a named list of preloaded raw series values"
   )
@@ -352,7 +393,7 @@ test_that("evaluate_pipeline accepts xts raw inputs", {
     pipeline = normalize_pipeline(spec),
     inputs = list(raw_a = x),
     outputs = "out",
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   expect_s3_class(result$outputs$out, "xts")
@@ -360,7 +401,7 @@ test_that("evaluate_pipeline accepts xts raw inputs", {
 
 test_that("evaluate_pipeline rejects unsupported expression classes", {
   expect_error(
-    evaluate_expr(structure(list(), class = "UnknownExpr"), values = list(), transform_env = baseenv()),
+    evaluate_expr(structure(list(), class = "UnknownExpr"), values = list(), runtime = new_runtime()),
     "cannot evaluate unsupported expression class"
   )
 })
@@ -385,7 +426,7 @@ test_that("evaluate_pipeline adds series and transform context to failures", {
     evaluate_pipeline(
       pipeline = spec,
       inputs = list(raw_a = ts(1, start = c(2024, 1), frequency = 12)),
-      transform_env = environment()
+      transforms = local_transforms()
     ),
     "failed while evaluating series `derived_b`: transform `boom` failed: kaboom"
   )
@@ -432,7 +473,7 @@ test_that("evaluate_pipeline collects node errors and skips downstream nodes whe
         raw_a = ts(1, start = c(2024, 1), frequency = 12),
         raw_b = ts(2, start = c(2024, 1), frequency = 12)
       ),
-      transform_env = environment(),
+      transforms = local_transforms(),
       progress = FALSE,
       error_mode = "collect"
     ),
@@ -470,7 +511,7 @@ test_that("evaluate_pipeline keeps fail-fast behavior by default", {
     evaluate_pipeline(
       pipeline = spec,
       inputs = list(raw_a = ts(1, start = c(2024, 1), frequency = 12)),
-      transform_env = environment(),
+      transforms = local_transforms(),
       progress = FALSE
     ),
     "failed while evaluating series `derived_b`: transform `boom` failed: kaboom"
@@ -502,14 +543,14 @@ test_that("expand_node_result marks a failed internal step and downstream skip",
     result <- evaluate_pipeline(
       pipeline = spec,
       inputs = list(raw_a = ts(6, start = c(2024, 1), frequency = 12)),
-      transform_env = environment(),
+      transforms = local_transforms(),
       progress = FALSE,
       error_mode = "collect"
     ),
     "Some pipeline nodes failed during execution"
   )
 
-  expanded <- expand_node_result(result, "final_d", transform_env = environment())
+  expanded <- expand_node_result(result, "final_d", transforms = local_transforms())
 
   expect_equal(expanded$failed_step, "final_d::step_2")
   expect_equal(as.numeric(expanded$values$raw_a), 6)
@@ -550,14 +591,14 @@ test_that("expand_node_result marks a child of a failed node as skipped", {
     result <- evaluate_pipeline(
       pipeline = spec,
       inputs = list(raw_a = ts(6, start = c(2024, 1), frequency = 12)),
-      transform_env = environment(),
+      transforms = local_transforms(),
       progress = FALSE,
       error_mode = "collect"
     ),
     "Some pipeline nodes failed during execution"
   )
 
-  expanded <- expand_node_result(result, "child_node", transform_env = environment())
+  expanded <- expand_node_result(result, "child_node", transforms = local_transforms())
 
   expect_s3_class(expanded, "ExpandedNodeResult")
   expect_null(expanded$failed_step)
@@ -599,7 +640,7 @@ test_that("result helpers expose the executed DAG and upstream path", {
       raw_a = ts(5, start = c(2024, 1), frequency = 12),
       raw_b = ts(4, start = c(2024, 1), frequency = 12)
     ),
-    transform_env = environment()
+    transforms = local_transforms()
   )
 
   dag <- result$dag

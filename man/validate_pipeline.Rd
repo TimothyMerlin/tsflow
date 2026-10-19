@@ -4,14 +4,14 @@
 \alias{validate_pipeline}
 \title{Validate a Normalized Pipeline}
 \usage{
-validate_pipeline(pipeline, transform_env = parent.frame())
+validate_pipeline(pipeline, transforms = list())
 }
 \arguments{
 \item{pipeline}{A `PipelineSpec` object.}
 
-\item{transform_env}{Environment used to resolve bare transform names during
-validation. Namespaced transforms such as `stats::lag` are resolved
-directly.}
+\item{transforms}{A named list of functions used to resolve bare transform
+names. Namespaced transforms such as `stats::lag` are resolved directly
+and do not need to be registered.}
 }
 \value{
 The input pipeline, invisibly, if validation succeeds.
