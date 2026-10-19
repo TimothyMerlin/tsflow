@@ -103,7 +103,7 @@ test_that("normalize_steps enforces a single first input step", {
 test_that("normalize_step_arg rejects unsupported values", {
   expect_error(
     normalize_step_arg(list(a = 1, b = 2)),
-    "literal value or series reference"
+    "literal value, series reference, var or nested call"
   )
 })
 

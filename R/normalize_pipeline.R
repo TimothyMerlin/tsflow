@@ -7,6 +7,10 @@
 #' defined by structured `steps`. Derived expressions are normalized into
 #' reference, literal, call, pipe, and binary operator nodes.
 #'
+#' Step arguments may be a series name (bare string or `{ref: name}`), a
+#' number or flag, `{literal: value}`, `{var: name}`, or a nested call
+#' `{call: {name: fn, args: [...], kwargs: {...}}}`.
+#'
 #' @param x An R object representing a pipeline component.
 #' @param steps A list of MVP `steps` entries.
 #' @param vars Optional named list of shared atomic literal variables used to
@@ -230,7 +234,11 @@ normalize_step_arg <- function(x, vars = NULL) {
     return(new_literal_node(vars[[x$var]]))
   }
 
-  fail("step args must normalize to a literal value or series reference")
+  if (is.list(x) && identical(names(x), "call")) {
+    return(normalize_call(x$call, sprintf("nested call `%s`", x$call$name %||% "?"), vars = vars))
+  }
+
+  fail("step args must normalize to a literal value, series reference, var or nested call")
 }
 
 normalize_input_step <- function(step) {
@@ -249,11 +257,19 @@ normalize_input_step <- function(step) {
 }
 
 normalize_call_step <- function(call, current, idx, vars = NULL) {
-  assert_named_list(call, sprintf("call step %d", idx))
+  new_pipe_node(
+    input = current,
+    call = normalize_call(call, sprintf("call step %d", idx), vars = vars)
+  )
+}
+
+# Shared by pipe `call` steps and nested `{call: ...}` step args.
+normalize_call <- function(call, what, vars = NULL) {
+  assert_named_list(call, what)
 
   name <- call$name
   if (!is_scalar_string(name)) {
-    fail(sprintf("call step %d `name` must be a single string", idx))
+    fail(sprintf("%s `name` must be a single string", what))
   }
 
   args <- call$args %||% list()
@@ -264,17 +280,14 @@ normalize_call_step <- function(call, current, idx, vars = NULL) {
 
   kwargs <- call$kwargs %||% list()
   if (!is.list(kwargs)) {
-    fail(sprintf("call step %d `kwargs` must be a named list", idx))
+    fail(sprintf("%s `kwargs` must be a named list", what))
   }
   if (length(kwargs) > 0L && is.null(names(kwargs))) {
-    fail(sprintf("call step %d `kwargs` must be a named list", idx))
+    fail(sprintf("%s `kwargs` must be a named list", what))
   }
   normalized_kwargs <- lapply(kwargs, normalize_step_arg, vars = vars)
 
-  new_pipe_node(
-    input = current,
-    call = new_call_node(name = name, args = normalized_args, kwargs = normalized_kwargs)
-  )
+  new_call_node(name = name, args = normalized_args, kwargs = normalized_kwargs)
 }
 
 normalize_op_step <- function(op, current, idx, vars = NULL) {

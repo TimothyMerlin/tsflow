@@ -328,6 +328,116 @@ test_that("read_pipeline_csv rejects malformed step cells", {
   )
 })
 
+parse_step <- function(cell, input_name = "raw_a") {
+  parse_csv_step(cell, input_name = input_name)
+}
+
+test_that("CSV @var references are rewritten only outside quotes and at token starts", {
+  step <- parse_step("f(x, label = 'email@example.com', m = @m, n = @n.1)")$step$call
+  expect_equal(step$kwargs$label$literal, "email@example.com")
+  expect_equal(step$kwargs$m$var, "m")
+  expect_equal(step$kwargs$n$var, "n.1")
+
+  expect_error(parse_step("f(x@y)"), "unsupported argument `x@y`", fixed = TRUE)
+})
+
+test_that("CSV cells accept .var() directly", {
+  step <- parse_step("jsa(raw_b, method = .var(jsa_method))")$step$call
+  expect_equal(step$kwargs$method$var, "jsa_method")
+
+  expect_error(parse_step("f(x, m = .var(a, b))"), "`.var(name)` with a single var name", fixed = TRUE)
+  expect_error(parse_step(".var(a)"), "must use the form", fixed = TRUE)
+})
+
+test_that("CSV cells support nested calls", {
+  parsed <- parse_step("a2q_sum(jsa(raw_b, method = @m), indicator = stats::lag(raw_c, -1))")
+  call <- parsed$step$call
+
+  expect_equal(call$name, "a2q_sum")
+  expect_equal(call$args[[1]]$call$name, "jsa")
+  expect_equal(call$args[[1]]$call$args[[1]], "raw_b")
+  expect_equal(call$args[[1]]$call$kwargs$method$var, "m")
+  expect_equal(call$kwargs$indicator$call$name, "stats::lag")
+  expect_equal(call$kwargs$indicator$call$args[[2]], -1)
+  expect_equal(parsed$refs, c("raw_b", "raw_c"))
+})
+
+test_that("CSV cells fold arithmetic on numbers and accept scientific notation", {
+  call <- parse_step("scale(x, factor = 100 / 4, offset = -(2 + 3), big = 1e6, n = 5L)")$step$call
+
+  expect_equal(call$kwargs$factor, 25)
+  expect_equal(call$kwargs$offset, -5)
+  expect_equal(call$kwargs$big, 1e6)
+  expect_identical(call$kwargs$n, 5L)
+  expect_equal(parse_step("div(1e3)")$step$op$right, 1000)
+})
+
+test_that("CSV cells reject arithmetic on series refs and vars inside arguments", {
+  expect_error(
+    parse_step("scale(x, factor = raw_b * 2)"),
+    "arithmetic on `raw_b`; arithmetic inside arguments only supports numbers",
+    fixed = TRUE
+  )
+  expect_error(parse_step("scale(x, factor = @f * 2)"), "arithmetic on `.var(f)`", fixed = TRUE)
+})
+
+test_that("CSV cells reject unsupported syntax with clear errors", {
+  expect_error(parse_step("f(x[1])"), "unsupported argument `x[1]`", fixed = TRUE)
+  expect_error(parse_step("f(x$y)"), "unsupported argument `x$y`", fixed = TRUE)
+  expect_error(parse_step("f(function(x) x)"), "unsupported argument", fixed = TRUE)
+  expect_error(parse_step("f(x, NA)"), "missing value (`NA`)", fixed = TRUE)
+  expect_error(parse_step("f(x, NULL)"), "`NULL`, which is not supported", fixed = TRUE)
+  expect_error(parse_step("f(x, )"), "contains an empty argument", fixed = TRUE)
+  expect_error(parse_step("f(x, 'open)"), "is not a valid expression", fixed = TRUE)
+  expect_error(parse_step("x[1]"), "must use the form", fixed = TRUE)
+  expect_error(parse_step("f(mul(x))"), "unsupported argument `mul(x)`", fixed = TRUE)
+})
+
+test_that("CSV nested calls infer raw series and evaluate end to end", {
+  path <- tempfile(fileext = ".csv")
+  writeLines(
+    c(
+      "name,input,step_1",
+      "derived_a,raw_a,\"add_ts(scale(raw_b, factor = 100 / 4))\""
+    ),
+    con = path
+  )
+
+  parsed <- read_pipeline(path)
+  expect_equal(vapply(parsed$series, `[[`, character(1), "name"), c("raw_a", "raw_b", "derived_a"))
+
+  scale <- function(x, factor) x * factor
+  add_ts <- function(x, y) x + y
+  spec <- normalize_pipeline(parsed)
+  result <- evaluate_pipeline(
+    spec,
+    inputs = list(raw_a = ts(1:3), raw_b = ts(c(1, 1, 1))),
+    transforms = list(scale = scale, add_ts = add_ts),
+    progress = FALSE
+  )
+
+  expect_equal(as.numeric(result$values$derived_a), c(26, 27, 28))
+  expect_equal(build_dag(spec, transforms = list(scale = scale, add_ts = add_ts))$dependencies$derived_a, c("raw_a", "raw_b"))
+})
+
+test_that("YAML step args accept nested calls", {
+  spec <- normalize_pipeline(list(series = list(
+    list(name = "raw_a", source = list(type = "injected")),
+    list(name = "raw_b", source = list(type = "injected")),
+    list(name = "derived", steps = list(
+      list(input = "raw_a"),
+      list(call = list(name = "add_ts", args = list(
+        list(call = list(name = "scale", args = list("raw_b"), kwargs = list(factor = 2)))
+      )))
+    ))
+  )))
+
+  nested <- spec$series[[3]]$expression$call$args[[1]]
+  expect_s3_class(nested, "CallNode")
+  expect_equal(nested$name, "scale")
+  expect_equal(extract_dependencies(spec$series[[3]]$expression), c("raw_a", "raw_b"))
+})
+
 test_that("read_pipeline_csv rejects missing required headers", {
   path <- tempfile(fileext = ".csv")
   writeLines(
