@@ -19,7 +19,9 @@
 * Derived series in YAML can be written as a single `expr` string instead of
   `steps`, e.g. `expr: "jsa(x, method = 'uniform') / 1000"`. The first
   argument of each call is the piped input, so an `expr` series is identical
-  to the equivalent `steps` series (#12).
+  to the equivalent `steps` series (#12). A calculation on series on the right
+  of an operator, such as `a / (b + c)`, is not supported yet; define it as its
+  own series instead (#22).
 
 ## Breaking changes
 

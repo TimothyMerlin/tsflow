@@ -16,8 +16,13 @@
 #' `expr: "jsa(x, method = 'uniform') / 1000"`. As with R's pipe, the first
 #' argument of each call is the piped input, so this is equivalent to the steps
 #' `input: x`, `call: jsa(method = 'uniform')`, `op: div 1000`. The innermost
-#' first argument must be a series, and the right side of `+ - * /` can be a
-#' series, value, var or call but not arithmetic that combines series.
+#' first argument must be a series.
+#'
+#' The right side of `+ - * /` can be a series, number, var or call, but not a
+#' calculation on series: `a / (b + c)` is rejected. Define the calculation as
+#' its own series and reference it instead, e.g. a series `b_plus_c` with
+#' `expr: "b + c"` and then `expr: "a / b_plus_c"`. The left side has no such
+#' limit, so `(a + b) / c` works.
 #'
 #' @param x An R object representing a pipeline component.
 #' @param steps A list of MVP `steps` entries.
@@ -335,7 +340,8 @@ expr_chain_steps <- function(expr, context) {
 }
 
 # Right-hand operand of an arithmetic step: a series, value, var or call, but
-# not arithmetic that combines series (that needs its own series).
+# not a calculation on series such as `b + c` (that needs its own series).
+# Deliberately unsupported for now (#22).
 expr_operand <- function(expr, op, context) {
   while (is.call(expr) && identical(expr[[1L]], as.symbol("("))) {
     expr <- expr[[2L]]
@@ -343,7 +349,7 @@ expr_operand <- function(expr, op, context) {
 
   if (is_csv_arithmetic_call(expr) && !is_number_expr(expr)) {
     fail(sprintf(
-      "%s: the right side of `%s` (`%s`) combines series; define it as its own series and reference that instead",
+      "%s: the right side of `%s` (`%s`) is a calculation on series; define it as its own series and reference that instead",
       context,
       op,
       deparse_csv_expr(expr)

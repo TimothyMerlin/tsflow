@@ -53,6 +53,11 @@ string using the CSV cell syntax, e.g.
 `expr: "jsa(x, method = 'uniform') / 1000"`. As with R's pipe, the first
 argument of each call is the piped input, so this is equivalent to the steps
 `input: x`, `call: jsa(method = 'uniform')`, `op: div 1000`. The innermost
-first argument must be a series, and the right side of `+ - * /` can be a
-series, value, var or call but not arithmetic that combines series.
+first argument must be a series.
+
+The right side of `+ - * /` can be a series, number, var or call, but not a
+calculation on series: `a / (b + c)` is rejected. Define the calculation as
+its own series and reference it instead, e.g. a series `b_plus_c` with
+`expr: "b + c"` and then `expr: "a / b_plus_c"`. The left side has no such
+limit, so `(a + b) / c` works.
 }

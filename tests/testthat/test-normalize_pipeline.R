@@ -134,7 +134,8 @@ test_that("expr series normalize identically to the equivalent steps", {
 test_that("expr rejects forms that are not a series chain", {
   bad <- function(expr) normalize_series(list(name = "s", expr = expr))
 
-  expect_error(bad("a / (b + c)"), "right side of `/` (`b + c`) combines series", fixed = TRUE)
+  expect_error(bad("a / (b + c)"), "right side of `/` (`b + c`) is a calculation on series", fixed = TRUE)
+  expect_error(bad("a / (b + 1)"), "right side of `/` (`b + 1`) is a calculation on series", fixed = TRUE)
   expect_error(bad("scale(100, x)"), "must start from a series, but `100` is not a series name", fixed = TRUE)
   expect_error(bad("-x"), "uses unary `-` on `x`", fixed = TRUE)
   expect_error(bad("jsa(x = a)"), "`jsa()` needs the series it applies to as its first, unnamed argument", fixed = TRUE)
