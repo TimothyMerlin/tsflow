@@ -119,7 +119,7 @@ test_that("run_pipeline surfaces normalization and execution failures", {
       path = bad_path,
       inputs = list()
     ),
-    "must define either `source` or `steps`"
+    "must define either `source`, `steps` or `expr`"
   )
 
   missing_input_path <- tempfile(fileext = ".yml")

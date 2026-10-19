@@ -175,6 +175,45 @@ result$values$scaled_a
 result$values$growth_index
 ```
 
+## Write A Series As One Expression
+
+Instead of a `steps` list, a derived series can be written as a single `expr`
+string, using the same syntax as CSV step cells. As with R's pipe, the first
+argument of each call is the piped input. This series is equivalent to the
+two-series pipeline above:
+
+```{r}
+expr_path <- tempfile(fileext = ".yml")
+
+writeLines(
+    c(
+        "vars:",
+        "  factor: 100",
+        "series:",
+        "  - name: raw_a",
+        "    source:",
+        "      type: injected",
+        "  - name: growth_index",
+        "    expr: \"add_constant(scale(raw_a, factor = @factor), 5)\""
+    ),
+    con = expr_path
+)
+
+expr_result <- execute_pipeline(
+    path = expr_path,
+    inputs = inputs,
+    transforms = transforms
+)
+
+all.equal(expr_result$outputs$growth_index, result$outputs$growth_index)
+```
+
+One limit: the right side of `+`, `-`, `*` and `/` must be a single series,
+number, var or call, not a calculation on series. `a / (b + c)` is rejected;
+define `b + c` as its own series (e.g. `b_plus_c` with `expr: "b + c"`) and
+write `a / b_plus_c`. A named helper series also shows up in the DAG and
+lineage, which keeps the calculation easy to follow.
+
 ## Advanced Debugging: Step Into One Node
 
 Sometimes a series is still too coarse as one DAG node and you want to inspect
