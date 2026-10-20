@@ -269,53 +269,61 @@ test_that("evaluate_pipeline prunes execution to the requested output subgraph",
   expect_equal(as.numeric(result$outputs$left_c), 6)
 })
 
-test_that("evaluate_pipeline supports parallel frontier execution", {
+test_that("evaluate_pipeline evaluates independent branches sequentially in DAG order", {
   scale <- function(x, factor) x * factor
-  testthat::skip_if_not_installed("future")
-  testthat::skip_if_not_installed("future.apply")
-
-  pkg_path <- getNamespaceInfo(asNamespace("tsflow"), "path")
-  if (!file.exists(file.path(pkg_path, "Meta", "package.rds"))) {
-    testthat::skip("parallel worker test requires tsflow to be installed")
+  calls <- character()
+  traced_scale <- function(x, factor) {
+    calls <<- c(calls, as.character(factor))
+    scale(x, factor)
   }
 
   spec <- normalize_pipeline(list(
     series = list(
       list(name = "raw_a", source = list(type = "memory")),
       list(name = "raw_b", source = list(type = "memory")),
-      list(
-        name = "left_c",
-        steps = list(
-          list(input = "raw_a"),
-          list(call = list(name = "scale", args = list(2)))
-        )
-      ),
-      list(
-        name = "right_d",
-        steps = list(
-          list(input = "raw_b"),
-          list(call = list(name = "scale", args = list(3)))
-        )
-      )
+      list(name = "left_c", steps = list(list(input = "raw_a"), list(call = list(name = "scale", args = list(2))))),
+      list(name = "right_d", steps = list(list(input = "raw_b"), list(call = list(name = "scale", args = list(3)))))
     )
   ))
 
-  oplan <- future::plan()
-  on.exit(future::plan(oplan), add = TRUE)
-  future::plan(future::multisession, workers = 2)
-
   result <- evaluate_pipeline(
     pipeline = spec,
-    inputs = list(
-      raw_a = ts(3, start = c(2024, 1), frequency = 12),
-      raw_b = ts(4, start = c(2024, 1), frequency = 12)
-    ),
-    transforms = local_transforms(),
+    inputs = list(raw_a = ts(3), raw_b = ts(4)),
+    transforms = list(scale = traced_scale),
     progress = FALSE
   )
 
   expect_equal(as.numeric(result$values$left_c), 6)
   expect_equal(as.numeric(result$values$right_d), 12)
+  expect_equal(calls, c("2", "3"))
+})
+
+test_that("fail mode stops at the first error and collect mode continues past it", {
+  boom <- function(x) stop("kaboom", call. = FALSE)
+  scale <- function(x, factor) x * factor
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "memory")),
+      list(name = "broken", expr = "boom(raw_a)"),
+      list(name = "after", expr = "broken + 1"),
+      list(name = "fine", expr = "scale(raw_a, factor = 2)")
+    )
+  ))
+  inputs <- list(raw_a = ts(1:3))
+
+  expect_error(
+    evaluate_pipeline(spec, inputs, transforms = local_transforms(), progress = FALSE),
+    "failed while evaluating series `broken`: transform `boom` failed: kaboom",
+    fixed = TRUE
+  )
+
+  expect_warning(
+    result <- evaluate_pipeline(spec, inputs, transforms = local_transforms(), progress = FALSE, error_mode = "collect"),
+    "failed: broken"
+  )
+  expect_equal(names(result$errors), "broken")
+  expect_equal(result$skipped, "after")
+  expect_equal(as.numeric(result$values$fine), c(2, 4, 6))
 })
 
 test_that("evaluate_pipeline validates requested outputs and raw inputs at runtime", {

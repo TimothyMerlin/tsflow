@@ -67,6 +67,12 @@
 * `run_pipeline()` is removed; use `execute_pipeline()`, which it was an
   alias for (#6).
 
+* In-memory execution no longer runs DAG levels in parallel through
+  `future` / `future.apply`; series are evaluated one after another, with one
+  code path for both error modes. For parallel execution use `tar_tsflow()`
+  with a `targets` parallel backend. `future` and `future.apply` are no longer
+  suggested (#7).
+
 * Evaluation hooks are passed explicitly as
   `hooks = list(binary_op = , postprocess = )` instead of being discovered by
   the names `tsflow_evaluate_binary_op` and `tsflow_postprocess_value` (#5).

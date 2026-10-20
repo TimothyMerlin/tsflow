@@ -15,8 +15,6 @@ Depends:
     R (>= 4.1.0)
 Suggests:
     codetools,
-    future,
-    future.apply,
     htmltools,
     htmlwidgets,
     igraph,

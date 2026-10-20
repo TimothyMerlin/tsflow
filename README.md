@@ -90,20 +90,9 @@ In interactive sessions, execution shows a progress bar automatically when
 `progressr` is installed. Existing user handlers are respected, and progress can
 be disabled with `progress = FALSE` or `options(tsflow.progress = FALSE)`.
 
-If `future` and `future.apply` are installed, independent DAG frontiers can be
-executed using the current `future::plan()`. The plan controls the actual
-parallel backend and worker count:
-
-```r
-future::plan(future::multisession, workers = 2)
-
-result <- execute_pipeline(
-  path = "inst/examples/gdp_construction.csv",
-  inputs = gdp_construction_inputs,
-  transforms = transforms,
-  outputs = "construction.nominal.quarterly"
-)
-```
+`execute_pipeline()` runs series one after another. For parallel execution,
+use `tar_tsflow()` with a `targets` parallel backend (see "Running With
+targets").
 
 Transforms can be referenced as bare names such as `jsa` or namespaced
 functions such as `stats::lag`. Bare names must be registered in the
@@ -195,10 +184,9 @@ its own target; use `granularity = "series"` for one target per series.
 - If `outputs = NULL`, `result$outputs` defaults to derived series only.
 - If `outputs = ...` is provided, execution is pruned to the upstream subgraph
   needed for those targets.
-- If `future` and `future.apply` are available, parallel frontier execution is
-  enabled by the current `future::plan()`.
-- The actual parallel backend and worker count are controlled entirely by that
-  `future::plan()`.
+- Series are evaluated one after another in dependency order. With
+  `error_mode = "fail"` the first error stops the run; with `"collect"` it is
+  recorded and only the series depending on it are skipped.
 
 ## DAG Inspection
 
