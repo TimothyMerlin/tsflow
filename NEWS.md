@@ -1,4 +1,4 @@
-# tsflow (development version)
+# tsflow 0.2.0
 
 * New `series_names()` returns the series names declared by a pipeline in
   definition order, with an optional `kind` filter (`"raw"` / `"derived"`). It

@@ -1,6 +1,6 @@
 Package: tsflow
 Title: Declarative Time Series Pipeline Specifications
-Version: 0.1.1
+Version: 0.2.0
 Authors@R:
     person("Merlin", "Scherer", email = "merlin.scherer@pm.me", role = c("aut", "cre"))
 Description: Parse and normalize declarative time series pipeline
