@@ -1,0 +1,352 @@
+---
+title: "Running with targets"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running with targets}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    collapse = TRUE,
+    comment = "#>"
+)
+
+has_runtime_pkgs <-
+    requireNamespace("targets", quietly = TRUE) &&
+        requireNamespace("codetools", quietly = TRUE)
+knitr::opts_chunk$set(eval = has_runtime_pkgs)
+```
+
+`execute_pipeline()` recomputes every series on every run. For pipelines that
+run regularly, or that contain slow steps, [targets](https://docs.ropensci.org/targets/)
+can keep results between runs and recompute only what changed. This vignette
+shows three ways of combining the two:
+
+- caching `execute_pipeline()` results with a single option,
+- a full `targets` project built with `tar_tsflow()`, including tracked data
+  files and missing inputs,
+- lineage documentation that `targets` keeps up to date.
+
+The patterns follow the [targets manual](https://books.ropensci.org/targets/):
+its walkthrough (tracked data files), literate programming (documents as
+targets) and distributed computing chapters.
+
+## Example: Monthly Retail Sales
+
+The example turns monthly nominal retail sales and a consumer price index into
+real, seasonally adjusted sales, a year-on-year growth rate and a trend.
+
+```{r}
+library(tsflow)
+
+set.seed(42)
+months <- 120
+price_index <- ts(
+    100 * cumprod(1 + rnorm(months, 0.002, 0.002)),
+    start = c(2015, 1),
+    frequency = 12
+)
+seasonal_pattern <- rep(c(-8, -10, -2, 0, 1, 2, 0, -1, 1, 3, 8, 16), months / 12)
+real_sales <- 200 + 0.5 * seq_len(months) + seasonal_pattern + rnorm(months, 0, 2)
+sales_nominal <- ts(real_sales * price_index / 100, start = c(2015, 1), frequency = 12)
+
+inputs <- list(sales.nominal = sales_nominal, cpi = price_index)
+```
+
+The pipeline, with two shared parameters:
+
+```{r}
+pipeline_lines <- c(
+    "vars:",
+    "  base_year: 2020",
+    "  trend_window: 12",
+    "series:",
+    "  - name: sales.nominal",
+    "    source: {type: injected}",
+    "  - name: cpi",
+    "    source: {type: injected}",
+    "  - name: sales.nominal.sa",
+    "    expr: \"seasonal_adjust(sales.nominal)\"",
+    "  - name: sales.real",
+    "    expr: \"deflate(sales.nominal, cpi, base_year = @base_year)\"",
+    "  - name: sales.real.sa",
+    "    expr: \"seasonal_adjust(sales.real)\"",
+    "  - name: sales.growth",
+    "    expr: \"base::round(growth_rate(sales.real.sa, lag = 12), digits = 1)\"",
+    "  - name: sales.trend",
+    "    expr: \"moving_average(sales.real.sa, n = @trend_window)\""
+)
+pipeline_path <- file.path(tempdir(), "retail.yml")
+writeLines(pipeline_lines, pipeline_path)
+cat(pipeline_lines, sep = "\n")
+```
+
+And its transforms, plain R functions:
+
+```{r}
+# Real values in prices of `base_year`.
+deflate <- function(nominal, prices, base_year) {
+    base_level <- mean(window(prices, start = c(base_year, 1), end = c(base_year, 12)))
+    nominal / (prices / base_level)
+}
+
+# Remove a fixed seasonal pattern.
+seasonal_adjust <- function(x) {
+    fit <- stats::stl(x, s.window = "periodic")
+    x - fit$time.series[, "seasonal"]
+}
+
+# Growth in percent over `lag` periods (12 = year on year).
+growth_rate <- function(x, lag = 12) {
+    100 * (x / stats::lag(x, -lag) - 1)
+}
+
+# Trailing moving average over `n` periods.
+moving_average <- function(x, n = 12) {
+    stats::filter(x, rep(1 / n, n), sides = 1)
+}
+
+transforms <- list(
+    deflate = deflate,
+    seasonal_adjust = seasonal_adjust,
+    growth_rate = growth_rate,
+    moving_average = moving_average
+)
+```
+
+## Cache Results With One Option
+
+Setting `tsflow.store` makes `execute_pipeline()` run through `targets` behind
+the scenes and keep its results in that directory. No `_targets.R` is needed.
+`result$rebuilt` lists the series recomputed in a run.
+
+```{r}
+options(tsflow.store = file.path(tempdir(), "tsflow-cache"))
+
+first <- execute_pipeline(pipeline_path, inputs = inputs, transforms = transforms)
+first$rebuilt
+```
+
+Running again with nothing changed recomputes nothing:
+
+```{r}
+second <- execute_pipeline(pipeline_path, inputs = inputs, transforms = transforms)
+second$rebuilt
+```
+
+Changing a transform recomputes only the series that use it. Here the growth
+rate switches from year-on-year to month-on-month by changing the default:
+
+```{r}
+year_on_year_growth_rate <- growth_rate
+growth_rate <- function(x, lag = 1) {
+    100 * (x / stats::lag(x, -lag) - 1)
+}
+transforms$growth_rate <- growth_rate
+
+third <- execute_pipeline(pipeline_path, inputs = inputs, transforms = transforms)
+third$rebuilt
+```
+
+Only `sales.growth` was recomputed, even though the pipeline still passes
+`lag = 12`: `targets` compares the function's code, not its result. Changes to
+helper functions that a transform calls are detected the same way.
+
+`store = NULL` in a call, or unsetting the option, goes back to in-memory
+execution. The rest of the vignette uses the year-on-year growth rate again:
+
+```{r}
+options(tsflow.store = NULL)
+growth_rate <- year_on_year_growth_rate
+transforms$growth_rate <- growth_rate
+```
+
+## A targets Project
+
+For larger pipelines, or to combine tsflow series with other work such as
+models and reports, use `tar_tsflow()` in a regular `targets` project. It turns
+the pipeline into targets: by default one per step, with the last step of each
+series named after the series.
+
+The project below lives in a temporary directory. The raw data is a file that
+`targets` tracks (`format = "file"`), and the transforms live in a script that
+`_targets.R` sources, as is usual in `targets` projects.
+
+```{r}
+project <- file.path(tempdir(), "retail-targets")
+dir.create(project, showWarnings = FALSE)
+writeLines(pipeline_lines, file.path(project, "retail.yml"))
+dump(c("deflate", "seasonal_adjust", "growth_rate", "moving_average"), file.path(project, "transforms.R"))
+saveRDS(inputs, file.path(project, "inputs.rds"))
+
+targets_script <- c(
+    "library(targets)",
+    "source(\"transforms.R\")",
+    "",
+    "list(",
+    "  tar_target(inputs_file, \"inputs.rds\", format = \"file\"),",
+    "  tar_target(tsflow_inputs, readRDS(inputs_file)),",
+    "  tsflow::tar_tsflow(",
+    "    \"retail.yml\",",
+    "    transforms = list(",
+    "      deflate = deflate,",
+    "      seasonal_adjust = seasonal_adjust,",
+    "      growth_rate = growth_rate,",
+    "      moving_average = moving_average",
+    "    )",
+    "  )",
+    ")"
+)
+writeLines(targets_script, file.path(project, "_targets.R"))
+cat(targets_script, sep = "\n")
+```
+
+You would normally run `targets` functions from the project directory. In this
+vignette, two small helpers do that. `make()` returns the derived series and
+steps that were built; the raw series and the data file targets are left out,
+since they are reloaded whenever the data file changes:
+
+```{r}
+in_project <- function(code) {
+    old <- setwd(project)
+    on.exit(setwd(old))
+    code
+}
+
+make <- function() {
+    in_project(targets::tar_make(reporter = "silent", callr_function = NULL))
+    progress <- in_project(targets::tar_progress())
+    built <- progress$name[progress$progress == "completed"]
+    setdiff(built, c("inputs_file", "tsflow_inputs", "sales.nominal", "cpi"))
+}
+```
+
+`tar_manifest()` lists the targets `tar_tsflow()` created. `sales.growth` has
+two steps, so its first step is a target of its own, `sales.growth..step1`:
+
+```{r}
+in_project(targets::tar_manifest(fields = "name", callr_function = NULL))
+```
+
+The first run builds everything, and `tar_read()` returns any series:
+
+```{r}
+make()
+window(in_project(targets::tar_read(sales.growth)), start = c(2024, 1))
+```
+
+A second run builds nothing:
+
+```{r}
+make()
+```
+
+### Changing a Parameter
+
+Changing a shared parameter reruns only the steps that use it. A shorter trend
+window affects only the trend:
+
+```{r}
+pipeline_file <- file.path(project, "retail.yml")
+writeLines(sub("trend_window: 12", "trend_window: 6", readLines(pipeline_file)), pipeline_file)
+
+make()
+```
+
+Moving the base year changes the real series, and with it everything computed
+from real sales, but not `sales.nominal.sa`:
+
+```{r}
+writeLines(sub("base_year: 2020", "base_year: 2018", readLines(pipeline_file)), pipeline_file)
+
+make()
+```
+
+### Changing the Data
+
+Editing the tracked data file reloads the raw series, but steps only rerun
+when their inputs actually changed: revising the CPI reruns everything
+computed from real sales, while `sales.nominal.sa` is left alone because
+`sales.nominal` itself did not change.
+
+```{r}
+revised <- inputs
+revised$cpi <- revised$cpi * 1.01
+saveRDS(revised, file.path(project, "inputs.rds"))
+
+make()
+```
+
+### Missing Inputs
+
+If a raw series is not available, it and everything that depends on it hold a
+placeholder instead of a value, and the rest of the pipeline still builds:
+
+```{r}
+saveRDS(list(sales.nominal = sales_nominal), file.path(project, "inputs.rds"))
+
+make()
+in_project(targets::tar_read(sales.real))
+window(in_project(targets::tar_read(sales.nominal.sa)), start = c(2024, 7))
+```
+
+Raw series can also come from loaders for their `source` type instead of an
+inputs list; see `?tar_tsflow` and the README section "Loading Raw Data".
+Loader targets rerun on every `tar_make()`, because `targets` cannot see
+whether external data changed, but downstream steps only rerun when the loaded
+values differ.
+
+## Documentation as a Target
+
+`document_pipeline()` writes lineage pages for every series. As a target that
+depends on the pipeline file, the pages are regenerated whenever the
+definition changes, and are otherwise left alone:
+
+```{r}
+saveRDS(inputs, file.path(project, "inputs.rds"))
+
+docs_script <- c(
+    targets_script[-length(targets_script)],
+    "  ,",
+    "  tar_target(pipeline_file, \"retail.yml\", format = \"file\"),",
+    "  tar_target(",
+    "    lineage_docs,",
+    "    tsflow::document_pipeline(",
+    "      tsflow::plan_pipeline(",
+    "        pipeline_file,",
+    "        transforms = list(deflate = deflate, seasonal_adjust = seasonal_adjust,",
+    "                          growth_rate = growth_rate, moving_average = moving_average)",
+    "      ),",
+    "      \"lineage\"",
+    "    ),",
+    "    format = \"file\"",
+    "  )",
+    ")"
+)
+writeLines(docs_script, file.path(project, "_targets.R"))
+
+invisible(make())
+basename(in_project(targets::tar_read(lineage_docs)))
+```
+
+## Parallel Workers
+
+`targets` can run independent steps in parallel through
+[crew](https://wlandau.github.io/crew/). This pays off when steps are slow, for
+example seasonal adjustment of hundreds of series. Add a controller to
+`_targets.R`:
+
+```{r, eval = FALSE}
+library(targets)
+tar_option_set(controller = crew::crew_controller_local(workers = 4))
+```
+
+`tar_make()` then sends ready steps to the workers. `tar_visnetwork()` shows the
+graph of step targets with their status, and `tar_meta()` holds timings and any
+errors per step.
+
+```{r, include = FALSE}
+unlink(project, recursive = TRUE)
+```
