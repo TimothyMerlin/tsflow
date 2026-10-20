@@ -193,3 +193,38 @@ test_that("tar_tsflow validates its arguments", {
   expect_error(tar_tsflow(path, outputs = "missing"), "`outputs` are not series in the pipeline: missing")
   expect_error(tar_tsflow(path, granularity = "node"), "should be one of")
 })
+
+test_that("registered namespace functions contribute package versions", {
+  expect_equal(
+    tar_package_versions("stats::lag", list(stats::lag, utils::head, sum)),
+    c(stats = as.character(utils::packageVersion("stats")),
+      utils = as.character(utils::packageVersion("utils")))
+  )
+  expect_null(tar_package_versions("local", list(function(x) x, NULL)))
+})
+
+targets::tar_test("package versions follow registered functions to their users", {
+  path <- tempfile(fileext = ".yml")
+  writeLines(c(
+    "series:",
+    "  - name: raw_a", "    source: {type: feed}",
+    "  - name: lagged", "    expr: 'shift(raw_a, -1)'",
+    "  - name: divided", "    expr: 'lagged / raw_a'"
+  ), path)
+  for (granularity in c("step", "series")) {
+    pipeline <- tar_tsflow(
+      path, transforms = list(shift = stats::lag, unused = utils::head),
+      hooks = list(postprocess = stats::na.omit, binary_op = utils::head),
+      loaders = list(feed = stats::ts), granularity = granularity
+    )
+    commands <- stats::setNames(lapply(pipeline, function(target) {
+      as.list(target$command$expr[[1L]])$packages
+    }), vapply(pipeline, function(target) target$name, character(1)))
+    stats_version <- c(stats = as.character(utils::packageVersion("stats")))
+    both_versions <- c(stats_version, utils = as.character(utils::packageVersion("utils")))
+    expect_equal(commands$raw_a, stats_version)
+    expect_equal(commands$lagged, if (granularity == "step") stats_version else both_versions)
+    expect_equal(commands$divided, if (granularity == "step") both_versions["utils"] else
+      both_versions)
+  }
+})

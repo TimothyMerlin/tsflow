@@ -1,5 +1,9 @@
 # tsflow (development version)
 
+* `tar_tsflow()` and cached `execute_pipeline()` runs now track package versions
+  for transforms, hooks, and loaders registered under bare names, so updating
+  their packages invalidates the targets that use them.
+
 * Results record a data hash of each raw input in `result$input_hashes`, so
   you can check whether two runs used the same data. The hash covers class,
   frequency, time index, values and column names, and is the same in any

@@ -208,3 +208,32 @@ test_that("cached execution validates before running", {
   )
   expect_false(dir.exists(file.path(dir, "cache")))
 })
+
+test_that("cached registered package transforms rebuild when their package version changes", {
+  skip_if_not_installed("targets")
+  skip_if_not_installed("codetools")
+  dir <- withr::local_tempdir()
+  path <- file.path(dir, "pipeline.yml")
+  writeLines(c(
+    "series:",
+    "  - name: raw_a", "    source: {type: injected}",
+    "  - name: lagged", "    expr: 'shift(raw_a, -1)'",
+    "  - name: other", "    expr: 'raw_a + raw_a'"
+  ), path)
+  original_versions <- tar_package_versions
+  version <- "1.0.0"
+  testthat::local_mocked_bindings(tar_package_versions = function(...) {
+    versions <- original_versions(...)
+    versions[names(versions) == "stats"] <- version
+    versions
+  })
+  run <- function() execute_pipeline(
+    path, inputs = list(raw_a = ts(1:3)), transforms = list(shift = stats::lag),
+    progress = FALSE, store = file.path(dir, "cache")
+  )
+  expect_setequal(run()$rebuilt, c("lagged", "other"))
+  expect_length(run()$rebuilt, 0L)
+  version <- "2.0.0"
+  expect_equal(run()$rebuilt, "lagged")
+  expect_length(run()$rebuilt, 0L)
+})

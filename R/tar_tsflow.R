@@ -94,17 +94,17 @@ tar_tsflow <- function(path,
   targets_list <- lapply(nodes, function(name) {
     series <- series_map[[name]]
     if (identical(series$kind, "raw")) {
-      return(list(tar_raw_target(name, series$source, inputs, loader_refs)))
+      return(list(tar_raw_target(name, series$source, inputs, loader_refs, loaders)))
     }
 
     if (identical(granularity, "series")) {
       return(list(targets::tar_target_raw(
         name,
-        tar_series_command(series$expression, transform_refs, hook_refs)
+        tar_series_command(series$expression, transform_refs, hook_refs, transforms, hooks)
       )))
     }
 
-    tar_step_targets(name, series$expression, transform_refs, hook_refs)
+    tar_step_targets(name, series$expression, transform_refs, hook_refs, transforms, hooks)
   })
 
   unlist(targets_list, recursive = FALSE)
@@ -120,20 +120,21 @@ tsflow_internal <- function(fn) {
 # A raw series target: from `inputs` if present, else its loader. Loaders
 # read external data targets can't see, so those targets always rerun;
 # downstream steps still only rerun when the loaded value changed.
-tar_raw_target <- function(name, source, inputs, loader_refs) {
+tar_raw_target <- function(name, source, inputs, loader_refs, loaders = list()) {
   loader_ref <- loader_refs[[source$type]]
   command <- bquote(.(tsflow_internal("tar_tsflow_raw"))(
     inputs = .(if (is.null(inputs)) NULL else as.name(inputs)),
     name = .(name),
     source = .(source$config),
     type = .(source$type),
-    loader = .(loader_ref)
+    loader = .(loader_ref),
+    packages = .(tar_package_versions(character(), loaders[source$type]))
   ))
   cue <- if (is.null(loader_ref)) targets::tar_cue() else targets::tar_cue(mode = "always")
   targets::tar_target_raw(name, command, cue = cue)
 }
 
-tar_tsflow_raw <- function(inputs, name, source, type, loader) {
+tar_tsflow_raw <- function(inputs, name, source, type, loader, packages = NULL) {
   loaders <- if (is.null(loader)) list() else stats::setNames(list(loader), type)
   series <- list(name = name, source = list(type = type, config = source))
   loaded <- load_raw_series(series, inputs %||% list(), loaders)
@@ -192,7 +193,7 @@ tar_tsflow_step <- function(step, input, values, transforms, hooks, packages = N
   )
 }
 
-tar_step_targets <- function(name, expression, transform_refs, hook_refs) {
+tar_step_targets <- function(name, expression, transform_refs, hook_refs, transforms = list(), hooks = list()) {
   decomposition <- decompose_node_expression(expression)
   steps <- decomposition$steps
 
@@ -226,21 +227,26 @@ tar_step_targets <- function(name, expression, transform_refs, hook_refs) {
       values = .(tar_symbol_list(deps)),
       transforms = .(tar_ref_list(transform_refs, used)),
       hooks = .(tar_ref_list(hook_refs, hooks_needed)),
-      packages = .(tar_package_versions(used))
+      packages = .(tar_package_versions(used, c(
+        transforms[intersect(used, names(transforms))],
+        hooks[intersect(hooks_needed, names(hooks))]
+      )))
     ))
     previous <<- step_names[[idx]]
     targets::tar_target_raw(step_names[[idx]], command)
   })
 }
 
-tar_series_command <- function(expression, transform_refs, hook_refs) {
+tar_series_command <- function(expression, transform_refs, hook_refs, transforms = list(), hooks = list()) {
   used <- collect_transform_names(expression)
   bquote(.(tsflow_internal("tar_tsflow_series"))(
     expression = .(expression),
     values = .(tar_symbol_list(extract_dependencies(expression))),
     transforms = .(tar_ref_list(transform_refs, used)),
     hooks = .(tar_ref_list(hook_refs, names(hook_refs))),
-    packages = .(tar_package_versions(used))
+    packages = .(tar_package_versions(used, c(
+      transforms[intersect(used, names(transforms))], hooks
+    )))
   ))
 }
 
@@ -306,10 +312,15 @@ tar_list_refs <- function(entries, entries_expr) {
   )
 }
 
-# Package versions for namespaced transforms, embedded in the command so a
-# package update changes the command and reruns the step.
-tar_package_versions <- function(transform_names) {
+# Package versions for namespaced transforms and registered functions, embedded
+# in commands so package updates rerun the targets that use them.
+tar_package_versions <- function(transform_names, functions = list()) {
   packages <- unique(sub("::.*$", "", grep("::", transform_names, fixed = TRUE, value = TRUE)))
+  registered_packages <- vapply(functions, function(fn) {
+    envir <- environment(fn)
+    if (!is.null(envir) && isNamespace(envir)) getNamespaceName(envir) else NA_character_
+  }, character(1))
+  packages <- unique(c(packages, registered_packages[!is.na(registered_packages)]))
   if (length(packages) == 0L) {
     return(NULL)
   }
