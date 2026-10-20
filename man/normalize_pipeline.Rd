@@ -21,9 +21,9 @@ The MVP normalizer supports raw series defined by `source` and derived series
 defined by structured `steps`. Derived expressions are normalized into
 reference, literal, call, pipe, and binary operator nodes.
 
-Step arguments may be a series name (bare string or `{ref: name}`), a
-number or flag, `{literal: value}`, `{var: name}`, or a nested call
-`{call: {name: fn, args: [...], kwargs: {...}}}`.
+Step arguments may be a series name (a bare string, or a map with a `ref`
+entry), a number or flag, a map with a `literal` or `var` entry, or a
+nested call: a map with a `call` entry holding `name`, `args` and `kwargs`.
 
 Instead of `steps`, a derived series can be written as a single `expr`
 string using the CSV cell syntax, e.g.

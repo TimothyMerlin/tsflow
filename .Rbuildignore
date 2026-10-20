@@ -3,4 +3,7 @@
 ^\.Rprofile$
 ^\.tool-versions$
 ^\.gitlab-ci\.yml$
+^\.github$
+^\.claude$
+^\.serena$
 ^data-raw$
