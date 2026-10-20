@@ -2,38 +2,15 @@
 % Please edit documentation in R/normalize_pipeline.R
 \name{normalize_pipeline}
 \alias{normalize_pipeline}
-\alias{normalize_series}
-\alias{normalize_source}
-\alias{normalize_steps}
-\alias{normalize_step_arg}
 \title{Normalize Pipeline Structures}
 \usage{
 normalize_pipeline(x)
-
-normalize_series(x, vars = NULL)
-
-normalize_source(x)
-
-normalize_steps(steps, vars = NULL)
-
-normalize_step_arg(x, vars = NULL)
 }
 \arguments{
-\item{x}{An R object representing a pipeline component.}
-
-\item{vars}{Optional named list of shared atomic literal variables used to
-resolve explicit `var` references inside step arguments.}
-
-\item{steps}{A list of MVP `steps` entries.}
+\item{x}{A parsed pipeline, as returned by [read_pipeline()].}
 }
 \value{
-`normalize_pipeline()` returns a `PipelineSpec` object.
-
-`normalize_series()` returns a `SeriesSpec` object.
-
-`normalize_source()` returns a `SourceSpec` object.
-
-`normalize_steps()` and `normalize_step_arg()` return expression nodes.
+A `PipelineSpec` object.
 }
 \description{
 Converts parsed YAML or CSV-derived structures into the canonical tsflow

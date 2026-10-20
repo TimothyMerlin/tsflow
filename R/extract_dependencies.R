@@ -1,12 +1,4 @@
-#' Extract Series Dependencies
-#'
-#' Walks a normalized expression tree and returns the referenced upstream
-#' series.
-#'
-#' @param expr A normalized expression node.
-#'
-#' @return A character vector of referenced series names.
-#' @export
+# Series referenced anywhere in a normalized expression tree.
 extract_dependencies <- function(expr) {
   if (inherits(expr, "RefNode")) {
     return(expr$name)

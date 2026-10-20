@@ -2,12 +2,9 @@
 % Please edit documentation in R/read_pipeline.R
 \name{read_pipeline}
 \alias{read_pipeline}
-\alias{read_pipeline_csv}
 \title{Read a Pipeline Definition}
 \usage{
 read_pipeline(path)
-
-read_pipeline_csv(path)
 }
 \arguments{
 \item{path}{Path to a pipeline file. YAML and CSV are supported.}

@@ -67,6 +67,12 @@
 * `run_pipeline()` is removed; use `execute_pipeline()`, which it was an
   alias for (#6).
 
+* Internal helpers are no longer exported: `normalize_series()`,
+  `normalize_source()`, `normalize_steps()`, `normalize_step_arg()` (use
+  `normalize_pipeline()`), `read_pipeline_csv()` (use `read_pipeline()`, which
+  reads CSV by file extension), `extract_dependencies()` (use
+  `upstream_nodes()` / `dag_edges()`) and `resolve_transform()` (#10).
+
 * In-memory execution no longer runs DAG levels in parallel through
   `future` / `future.apply`; series are evaluated one after another, with one
   code path for both error modes. For parallel execution use `tar_tsflow()`
