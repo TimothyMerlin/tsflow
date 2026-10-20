@@ -4,6 +4,14 @@
   definition order, with an optional `kind` filter (`"raw"` / `"derived"`). It
   accepts a `PipelineSpec`, `PipelinePlan`, or `PipelineResult`.
 
+* New `document_pipeline()` writes lineage / methodology documentation as
+  Markdown, one page per series plus an index: the definition step by step,
+  which input feeds which transform argument, the shared `vars` used, a
+  Mermaid diagram of the upstream lineage, raw sources and downstream users.
+  Optional `transform_descriptions` annotate steps, and an optional `result`
+  adds status, period and latest value. `series_lineage()` returns the same
+  information for one series as an R list (#15).
+
 * New option `tsflow.allowed_packages` restricts which packages namespaced
   `pkg::fn` transforms may resolve from (#5).
 

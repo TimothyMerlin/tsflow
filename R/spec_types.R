@@ -46,11 +46,13 @@ new_ref_node <- function(name) {
   )
 }
 
-new_literal_node <- function(value) {
-  structure(
-    list(value = value),
-    class = c("LiteralNode", "ExprNode", "tsflow_spec")
-  )
+# `var` records the shared parameter a value came from, for documentation.
+new_literal_node <- function(value, var = NULL) {
+  node <- list(value = value)
+  if (!is.null(var)) {
+    node$var <- var
+  }
+  structure(node, class = c("LiteralNode", "ExprNode", "tsflow_spec"))
 }
 
 new_call_node <- function(name, args = list(), kwargs = list()) {
