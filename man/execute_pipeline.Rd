@@ -2,22 +2,9 @@
 % Please edit documentation in R/run_pipeline.R
 \name{execute_pipeline}
 \alias{execute_pipeline}
-\alias{run_pipeline}
 \title{Execute a Pipeline From a File}
 \usage{
 execute_pipeline(
-  path,
-  inputs = list(),
-  outputs = NULL,
-  transforms = list(),
-  hooks = list(),
-  progress = getOption("tsflow.progress", TRUE),
-  error_mode = c("fail", "collect"),
-  store = getOption("tsflow.store"),
-  loaders = list()
-)
-
-run_pipeline(
   path,
   inputs = list(),
   outputs = NULL,
@@ -67,8 +54,9 @@ A `PipelineResult` object.
 }
 \description{
 Convenience entry point that reads, normalizes, validates, and evaluates a
-pipeline from a YAML or CSV definition file. `run_pipeline()` is retained as
-a compatibility alias for `execute_pipeline()`.
+pipeline from a YAML or CSV definition file. To inspect a pipeline before
+running it, use [plan_pipeline()] and pass the plan to
+[evaluate_pipeline()].
 }
 \details{
 With `store`, each pipeline file gets its own subfolder of `store`

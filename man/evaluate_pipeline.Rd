@@ -16,7 +16,9 @@ evaluate_pipeline(
 )
 }
 \arguments{
-\item{pipeline}{A `PipelineSpec` object.}
+\item{pipeline}{A `PipelineSpec` object, or a `PipelinePlan` from
+[plan_pipeline()]. A plan is run as it was inspected: its dependency graph
+and planned outputs are reused (unless `outputs` is given).}
 
 \item{inputs}{A named list of preloaded raw series values (`ts` or `xts`),
 keyed by raw series name. A series given here is used instead of its

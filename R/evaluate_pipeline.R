@@ -3,7 +3,9 @@
 #' Evaluates a normalized pipeline in topological order using preloaded raw
 #' inputs and direct R function resolution.
 #'
-#' @param pipeline A `PipelineSpec` object.
+#' @param pipeline A `PipelineSpec` object, or a `PipelinePlan` from
+#'   [plan_pipeline()]. A plan is run as it was inspected: its dependency graph
+#'   and planned outputs are reused (unless `outputs` is given).
 #' @param inputs A named list of preloaded raw series values (`ts` or `xts`),
 #'   keyed by raw series name. A series given here is used instead of its
 #'   loader.
@@ -62,7 +64,26 @@ evaluate_pipeline <- function(pipeline,
   error_mode <- match.arg(error_mode)
   runtime <- new_runtime(transforms = transforms, hooks = hooks)
   assert_loaders(loaders)
-  dag <- build_dag(pipeline, transforms = transforms)
+
+  # A plan is run as inspected: its DAG and planned outputs are reused, and
+  # only the transforms given now are checked against it.
+  if (inherits(pipeline, "PipelinePlan")) {
+    plan <- pipeline
+    pipeline <- plan$pipeline
+    if (missing(outputs)) {
+      outputs <- plan$outputs
+    }
+    if (!isTRUE(plan$dag$is_acyclic)) {
+      fail(sprintf(
+        "cannot evaluate a plan whose dependency graph contains a cycle involving: %s",
+        paste(plan$dag$cycle_nodes, collapse = ", ")
+      ))
+    }
+    validate_pipeline(pipeline, transforms = transforms)
+    dag <- plan$dag
+  } else {
+    dag <- build_dag(pipeline, transforms = transforms)
+  }
 
   if (!is.null(outputs)) {
     unknown_outputs <- setdiff(unique(outputs), dag$nodes)

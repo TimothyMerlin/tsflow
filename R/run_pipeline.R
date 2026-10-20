@@ -1,8 +1,9 @@
 #' Execute a Pipeline From a File
 #'
 #' Convenience entry point that reads, normalizes, validates, and evaluates a
-#' pipeline from a YAML or CSV definition file. `run_pipeline()` is retained as
-#' a compatibility alias for `execute_pipeline()`.
+#' pipeline from a YAML or CSV definition file. To inspect a pipeline before
+#' running it, use [plan_pipeline()] and pass the plan to
+#' [evaluate_pipeline()].
 #'
 #' @param path Path to a pipeline definition file.
 #' @param inputs A named list of preloaded raw series values (`ts` or `xts`),
@@ -76,31 +77,6 @@ execute_pipeline <- function(path,
     hooks = hooks,
     progress = progress,
     error_mode = error_mode,
-    loaders = loaders
-  )
-}
-
-#' @rdname execute_pipeline
-#' @export
-run_pipeline <- function(path,
-                         inputs = list(),
-                         outputs = NULL,
-                         transforms = list(),
-                         hooks = list(),
-                         progress = getOption("tsflow.progress", TRUE),
-                         error_mode = c("fail", "collect"),
-                         store = getOption("tsflow.store"),
-                         loaders = list()) {
-  error_mode <- match.arg(error_mode)
-  execute_pipeline(
-    path = path,
-    inputs = inputs,
-    outputs = outputs,
-    transforms = transforms,
-    hooks = hooks,
-    progress = progress,
-    error_mode = error_mode,
-    store = store,
     loaders = loaders
   )
 }

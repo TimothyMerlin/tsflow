@@ -50,15 +50,22 @@
   `plan_pipeline()` reports raw series without a loader in `needs_inputs`
   (#11).
 
+* `evaluate_pipeline()` accepts a `PipelinePlan` from `plan_pipeline()`, so a
+  pipeline can be run exactly as it was inspected, reusing the plan's
+  dependency graph and planned outputs (#6).
+
 ## Breaking changes
 
 * Transforms are now passed as an explicit registry instead of being looked up
   in the calling environment. `transform_env` is replaced by `transforms`, a
   named list of functions, in `validate_pipeline()`, `build_dag()`,
   `plan_pipeline()`, `evaluate_pipeline()`, `execute_pipeline()`,
-  `run_pipeline()`, `expand_node_result()` and `resolve_transform()`. Bare
-  transform names must be registered; namespaced `pkg::fn` transforms work
-  without registration (#5).
+  `expand_node_result()` and `resolve_transform()`. Bare transform names must
+  be registered; namespaced `pkg::fn` transforms work without registration
+  (#5).
+
+* `run_pipeline()` is removed; use `execute_pipeline()`, which it was an
+  alias for (#6).
 
 * Evaluation hooks are passed explicitly as
   `hooks = list(binary_op = , postprocess = )` instead of being discovered by

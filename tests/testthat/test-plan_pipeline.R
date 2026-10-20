@@ -237,3 +237,67 @@ test_that("plan_pipeline formats vector vars in node pipeline summaries", {
 
   expect_equal(plan$dag$node_pipeline$derived_b$steps, "a2q_sum(end=c(2026, 4))")
 })
+
+write_plan_pipeline <- function() {
+  path <- tempfile(fileext = ".yml")
+  writeLines(
+    c(
+      "series:",
+      "  - name: raw_a",
+      "    source: {type: injected}",
+      "  - name: scaled",
+      "    expr: \"scale(raw_a, factor = 10)\"",
+      "  - name: other",
+      "    expr: \"raw_a + 1\""
+    ),
+    con = path
+  )
+  path
+}
+
+test_that("evaluate_pipeline runs a plan with its planned outputs", {
+  scale <- function(x, factor) x * factor
+  path <- write_plan_pipeline()
+  inputs <- list(raw_a = ts(1:3))
+
+  plan <- plan_pipeline(path, outputs = "scaled", transforms = local_transforms())
+  result <- evaluate_pipeline(plan, inputs = inputs, transforms = local_transforms(), progress = FALSE)
+
+  expect_equal(names(result$outputs), "scaled")
+  expect_equal(result$plan$order, c("raw_a", "scaled"))
+  expect_equal(as.numeric(result$values$scaled), c(10, 20, 30))
+  expect_identical(result$pipeline, plan$pipeline)
+
+  all_outputs <- evaluate_pipeline(plan, inputs = inputs, outputs = NULL, transforms = local_transforms(), progress = FALSE)
+  expect_setequal(names(all_outputs$outputs), c("scaled", "other"))
+})
+
+test_that("evaluate_pipeline checks the plan against the transforms given now", {
+  scale <- function(x, factor) x * factor
+  plan <- plan_pipeline(write_plan_pipeline(), transforms = local_transforms())
+
+  expect_error(
+    evaluate_pipeline(plan, inputs = list(raw_a = ts(1:3)), progress = FALSE),
+    "uses unresolved transform `scale`"
+  )
+})
+
+test_that("evaluate_pipeline refuses plans with cycles", {
+  path <- tempfile(fileext = ".yml")
+  writeLines(
+    c(
+      "series:",
+      "  - name: a",
+      "    expr: \"b + 1\"",
+      "  - name: b",
+      "    expr: \"a + 1\""
+    ),
+    con = path
+  )
+  plan <- plan_pipeline(path, allow_cycles = TRUE)
+
+  expect_error(
+    evaluate_pipeline(plan, progress = FALSE),
+    "cannot evaluate a plan whose dependency graph contains a cycle involving: a, b"
+  )
+})
