@@ -12,6 +12,11 @@
   adds status, period and latest value. `series_lineage()` returns the same
   information for one series as an R list (#15).
 
+* New vignette `vignette("targets")` on running pipelines with `targets`:
+  caching with `tsflow.store`, a `tar_tsflow()` project with tracked data
+  files and missing inputs, and lineage documentation as a target. The intro
+  vignette shows running a saved plan with `evaluate_pipeline()`.
+
 * New option `tsflow.allowed_packages` restricts which packages namespaced
   `pkg::fn` transforms may resolve from (#5).
 

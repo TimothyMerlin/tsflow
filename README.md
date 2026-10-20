@@ -176,6 +176,8 @@ list(
 Run it with `targets::tar_make()` and read a series with
 `targets::tar_read(construction.deflator.quarterly)`. By default each step is
 its own target; use `granularity = "series"` for one target per series.
+`vignette("targets")` walks through caching, a full `targets` project, tracked
+data files, missing inputs and documentation as a target.
 
 ## Execution Semantics
 

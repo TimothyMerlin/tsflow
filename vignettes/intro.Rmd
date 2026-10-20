@@ -175,6 +175,15 @@ result$values$scaled_a
 result$values$growth_index
 ```
 
+`execute_pipeline()` reads the file again. To run exactly the plan you
+inspected above, pass it to `evaluate_pipeline()`; its dependency graph and
+planned outputs are reused:
+
+```{r}
+plan_result <- evaluate_pipeline(plan, inputs = inputs, transforms = transforms)
+identical(plan_result$outputs$growth_index, result$outputs$growth_index)
+```
+
 ## Write A Series As One Expression
 
 Instead of a `steps` list, a derived series can be written as a single `expr`
@@ -307,6 +316,12 @@ dag_to_visnetwork(expanded_failed)
 After the basic YAML workflow works, the next useful patterns are:
 
 - use CSV plus a sibling sidecar YAML file for spreadsheet-style authoring
-- save compiled YAML with `write_pipeline()`
+  (`vignette("gdp-construction")`)
+- save compiled YAML with `write_pipeline()` (`vignette("pipeline-export")`)
+- load raw series from their `source` with `loaders` instead of passing
+  `inputs`
+- keep results between runs and rerun only what changed, with
+  `options(tsflow.store = ...)` or `tar_tsflow()` (`vignette("targets")`)
+- write lineage documentation per series with `document_pipeline()`
 - inspect focused DAG subgraphs with `dag_to_visnetwork()`
 - step into one node with `expand_node_dag()`
