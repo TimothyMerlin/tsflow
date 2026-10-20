@@ -84,6 +84,17 @@
 
 ## Bug fixes
 
+* Arithmetic steps between two series now fail with a clear message, naming
+  the series and their periods, when the series don't overlap (previously a
+  cryptic `ts` error, or a silently empty `xts` result), when `ts` series have
+  different frequencies, and when a `ts` is combined with an `xts`
+  (previously R ignored the dates and combined values by position).
+  Partly overlapping series still combine on their common period; this is
+  now documented and tested (#9).
+
+* `expand_node_result()` replays arithmetic steps with the same arithmetic as
+  evaluation, including the `binary_op` hook and the alignment checks.
+
 * Error and warning messages no longer evaluate `{...}` in series names,
   references or other values from a pipeline file as R code; braces are now
   printed literally (#1).

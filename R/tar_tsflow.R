@@ -183,7 +183,13 @@ tar_tsflow_step <- function(step, input, values, transforms, hooks, packages = N
   }
 
   right <- evaluate_expr(step$right, values = values, runtime = runtime)
-  evaluate_binary_op(op = step$op, left = input, right = right, runtime = runtime)
+  evaluate_binary_op(
+    op = step$op,
+    left = input,
+    right = right,
+    runtime = runtime,
+    labels = c("left side", operand_label(step$right, "right side"))
+  )
 }
 
 tar_step_targets <- function(name, expression, transform_refs, hook_refs) {

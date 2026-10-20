@@ -64,6 +64,14 @@ A raw series comes from `inputs` if it is there, otherwise from the
   `result$dag$node_status`. A loader that throws an error is a failure like
   any other step.
 
+  **Time alignment.** `add`, `sub`, `mul` and `div` steps between two series
+  use R's arithmetic, which combines `ts` and `xts` series on their common
+  period: observations outside the overlap are dropped without a warning.
+  Series that don't overlap at all, `ts` series with different frequencies,
+  and a `ts` combined with an `xts` are errors. Combining a series with a
+  number is not checked. A `binary_op` hook replaces this arithmetic,
+  including the checks. Transforms handle alignment themselves.
+
   Transform names may be authored either as namespaced references
   such as `stats::lag` or as bare names registered in `transforms`, e.g.
   `transforms = list(scale = scale)`.
