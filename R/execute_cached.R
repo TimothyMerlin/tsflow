@@ -139,11 +139,7 @@ execute_pipeline_cached <- function(path,
 # One store subfolder per pipeline file, so pipelines sharing series names
 # don't overwrite each other's results: `<store>/<file name>-<path hash>`.
 pipeline_store_path <- function(store, path) {
-  normalized <- normalizePath(path, mustWork = TRUE)
-  hash_file <- tempfile()
-  on.exit(unlink(hash_file), add = TRUE)
-  writeLines(normalized, hash_file, useBytes = TRUE)
-  hash <- substr(unname(tools::md5sum(hash_file)), 1L, 6L)
+  hash <- substr(md5_text(normalizePath(path, mustWork = TRUE)), 1L, 6L)
 
   stem <- gsub("[^A-Za-z0-9_.-]", "_", tools::file_path_sans_ext(basename(path)))
   file.path(store, paste0(stem, "-", hash))

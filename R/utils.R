@@ -65,6 +65,30 @@ assert_inherits <- function(x, class_name, what) {
   }
 }
 
+# MD5 of a character vector, one element per line. Goes through a temporary
+# file because `tools::md5sum()` only hashes files before R 4.5.
+md5_text <- function(lines) {
+  file <- tempfile()
+  on.exit(unlink(file), add = TRUE)
+  writeLines(lines, file, useBytes = TRUE)
+  unname(tools::md5sum(file))
+}
+
+# Hash of a series' data: class, dimensions, frequency, column names, time
+# index and values. Built from the numbers rather than the serialized object,
+# so the same data gives the same hash in any session or R version.
+series_hash <- function(x) {
+  numbers <- function(v) sprintf("%.17g", as.numeric(v))
+  md5_text(c(
+    paste(class(x), collapse = ","),
+    paste(dim(x), collapse = ","),
+    if (stats::is.ts(x)) numbers(stats::frequency(x)),
+    paste(colnames(x), collapse = ","),
+    numbers(stats::time(x)),
+    numbers(x)
+  ))
+}
+
 as_pipeline_spec <- function(x) {
   if (inherits(x, "PipelineSpec")) {
     return(x)

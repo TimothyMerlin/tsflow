@@ -38,6 +38,12 @@
 #'   `result$dag$node_status`. A loader that throws an error is a failure like
 #'   any other step.
 #'
+#'   **Input hashes.** `result$input_hashes` is a named character vector with
+#'   an MD5 hash of each raw series the run used. The hash covers the data
+#'   only (class, frequency, time index, values and column names), so the same
+#'   data gives the same hash in any session or R version. Compare hashes
+#'   across runs to check whether the input data changed.
+#'
 #'   **Time alignment.** `add`, `sub`, `mul` and `div` steps between two series
 #'   use R's arithmetic, which combines `ts` and `xts` series on their common
 #'   period: observations outside the overlap are dropped without a warning.
@@ -203,6 +209,12 @@ new_pipeline_result <- function(pipeline,
   materialized_names <- outputs %||% default_output_names(pipeline, execution_dag)
   available_outputs <- materialized_names[materialized_names %in% names(values)]
 
+  # Fingerprint the raw data the run used, so results can be traced to it.
+  raw_nodes <- execution_dag$order[execution_dag$node_kind[execution_dag$order] == "raw"]
+  raw_values <- Filter(Negate(is.null), values[intersect(raw_nodes, names(values))])
+  input_hashes <- vapply(raw_values, series_hash, character(1))
+  names(input_hashes) <- names(raw_values)
+
   structure(
     c(
       list(
@@ -219,6 +231,7 @@ new_pipeline_result <- function(pipeline,
         errors = errors,
         skipped = skipped,
         missing_inputs = missing_inputs,
+        input_hashes = input_hashes,
         error_mode = error_mode
       ),
       extra

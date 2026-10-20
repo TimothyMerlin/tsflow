@@ -37,6 +37,7 @@ test_that("execute_pipeline(store) caches and only reruns what changed", {
   direct <- execute_pipeline(path, inputs, transforms = list(scale = scale, growth = growth), progress = FALSE)
   expect_equal(first$values, direct$values[names(first$values)])
   expect_equal(first$outputs, direct$outputs)
+  expect_equal(first$input_hashes, direct$input_hashes)
   expect_setequal(first$rebuilt, c("scaled", "grown", "other"))
   expect_s3_class(first, "PipelineResult")
 

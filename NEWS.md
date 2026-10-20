@@ -1,3 +1,11 @@
+# tsflow (development version)
+
+* Results record a data hash of each raw input in `result$input_hashes`, so
+  you can check whether two runs used the same data. The hash covers class,
+  frequency, time index, values and column names, and is the same in any
+  session or R version. `series_lineage()` and `document_pipeline()` show it
+  for raw sources when given a result.
+
 # tsflow 0.2.0
 
 * New `series_names()` returns the series names declared by a pipeline in
