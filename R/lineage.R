@@ -265,6 +265,11 @@ lineage_mermaid <- function(lineage) {
   )
 }
 
+# R code must be ASCII, so the middle dot and em dash are built from their
+# code points.
+md_dot_separator <- paste0(" ", intToUtf8(0xB7), " ")
+md_dash_separator <- paste0(" ", intToUtf8(0x2014), " ")
+
 md_link <- function(name) {
   sprintf("[%s](%s.md)", name, name)
 }
@@ -279,7 +284,7 @@ lineage_markdown <- function(lineage) {
   lines <- c(
     sprintf("# %s", lineage$name),
     "",
-    paste(c(sprintf("*%s*", kind_label), lineage$description), collapse = " · ")
+    paste(c(sprintf("*%s*", kind_label), lineage$description), collapse = md_dot_separator)
   )
 
   if (length(lineage$metadata) > 0L) {
@@ -292,7 +297,7 @@ lineage_markdown <- function(lineage) {
       sprintf("**Status:** %s", status$status),
       if (!is.na(status$period)) sprintf("**Period:** %s", status$period),
       if (!is.na(status$latest_value)) sprintf("**Latest value:** %s", status$latest_value)
-    ), collapse = " · "))
+    ), collapse = md_dot_separator))
   }
 
   if (identical(lineage$kind, "raw")) {
@@ -305,7 +310,7 @@ lineage_markdown <- function(lineage) {
         if (nzchar(row$vars)) sprintf("uses var %s", paste(sprintf("`%s`", strsplit(row$vars, ", ", fixed = TRUE)[[1L]]), collapse = ", ")),
         if (!is.na(row$description)) row$description
       )
-      sprintf("%d. `%s`%s", idx + 1L, row$text, if (length(extras) > 0L) paste0(" — ", paste(extras, collapse = "; ")) else "")
+      sprintf("%d. `%s`%s", idx + 1L, row$text, if (length(extras) > 0L) paste0(md_dash_separator, paste(extras, collapse = "; ")) else "")
     }, character(1))
 
     lines <- c(
