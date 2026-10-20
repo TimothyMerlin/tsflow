@@ -17,8 +17,9 @@
 #'   step that uses them. Names may also be the arithmetic steps `add`, `sub`,
 #'   `mul` and `div`.
 #' @param result Optional `PipelineResult` from running the pipeline. Adds each
-#'   series' status, the period it covers and its latest value. Defaults to
-#'   `plan` when `plan` is itself a result.
+#'   series' status, the period it covers and its latest value, and the hash
+#'   of each raw series' data (see `result$input_hashes` in
+#'   [evaluate_pipeline()]). Defaults to `plan` when `plan` is itself a result.
 #' @param dir Directory to write the Markdown files to. Created if needed.
 #'
 #' @return `series_lineage()` returns a `SeriesLineage` list with elements
@@ -53,7 +54,7 @@ series_lineage <- function(plan, series, transform_descriptions = NULL, result =
     steps = empty_steps_table(),
     inputs = data.frame(series = character(), used_as = character(), stringsAsFactors = FALSE),
     upstream = upstream,
-    raw_sources = raw_sources_table(plan$pipeline, raw_upstream),
+    raw_sources = raw_sources_table(plan$pipeline, raw_upstream, result),
     downstream = downstream_nodes(dag, series),
     graph_edges = graph$edges[, c("from", "to"), drop = FALSE],
     status = if (is.null(result)) NULL else series_status(result, series)
@@ -205,20 +206,32 @@ collect_var_names <- function(nodes) {
   }), use.names = FALSE) %||% character()
 }
 
-raw_sources_table <- function(pipeline, names) {
+raw_sources_table <- function(pipeline, names, result = NULL) {
   rows <- lapply(names, function(name) {
     source <- series_spec_by_name(pipeline, name)$source
     data.frame(
       series = name,
       type = source$type,
       config = format_source_config(source$config),
+      hash = input_hash(result, name),
       stringsAsFactors = FALSE
     )
   })
   if (length(rows) == 0L) {
-    return(data.frame(series = character(), type = character(), config = character(), stringsAsFactors = FALSE))
+    return(data.frame(
+      series = character(),
+      type = character(),
+      config = character(),
+      hash = character(),
+      stringsAsFactors = FALSE
+    ))
   }
   do.call(rbind, rows)
+}
+
+input_hash <- function(result, name) {
+  hashes <- result$input_hashes
+  if (name %in% names(hashes)) hashes[[name]] else NA_character_
 }
 
 format_source_config <- function(config) {
@@ -246,7 +259,7 @@ series_status <- function(result, name) {
     latest <- format(as.numeric(utils::tail(value, 1L))[[1L]], digits = 6L)
   }
 
-  list(status = status, period = period, latest_value = latest)
+  list(status = status, period = period, latest_value = latest, input_hash = input_hash(result, name))
 }
 
 lineage_mermaid <- function(lineage) {
@@ -296,7 +309,8 @@ lineage_markdown <- function(lineage) {
     lines <- c(lines, "", paste(c(
       sprintf("**Status:** %s", status$status),
       if (!is.na(status$period)) sprintf("**Period:** %s", status$period),
-      if (!is.na(status$latest_value)) sprintf("**Latest value:** %s", status$latest_value)
+      if (!is.na(status$latest_value)) sprintf("**Latest value:** %s", status$latest_value),
+      if (!is.na(status$input_hash)) sprintf("**Data hash:** `%s`", status$input_hash)
     ), collapse = md_dot_separator))
   }
 
@@ -337,10 +351,11 @@ lineage_markdown <- function(lineage) {
       "Raw sources:",
       "",
       sprintf(
-        "- %s (`%s`%s)",
+        "- %s (`%s`%s)%s",
         md_link(lineage$raw_sources$series),
         lineage$raw_sources$type,
-        ifelse(nzchar(lineage$raw_sources$config), paste0(": ", lineage$raw_sources$config), "")
+        ifelse(nzchar(lineage$raw_sources$config), paste0(": ", lineage$raw_sources$config), ""),
+        ifelse(is.na(lineage$raw_sources$hash), "", sprintf("%sdata hash `%s`", md_dot_separator, lineage$raw_sources$hash))
       )
     )
   }

@@ -64,6 +64,12 @@ A raw series comes from `inputs` if it is there, otherwise from the
   `result$dag$node_status`. A loader that throws an error is a failure like
   any other step.
 
+  **Input hashes.** `result$input_hashes` is a named character vector with
+  an MD5 hash of each raw series the run used. The hash covers the data
+  only (class, frequency, time index, values and column names), so the same
+  data gives the same hash in any session or R version. Compare hashes
+  across runs to check whether the input data changed.
+
   **Time alignment.** `add`, `sub`, `mul` and `div` steps between two series
   use R's arithmetic, which combines `ts` and `xts` series on their common
   period: observations outside the overlap are dropped without a warning.

@@ -661,3 +661,52 @@ test_that("result helpers expose the executed DAG and upstream path", {
   expect_s3_class(subgraph, "DAGSubgraph")
   expect_equal(subgraph$nodes, c("raw_a", "raw_b", "mid_c", "final_d"))
 })
+
+test_that("evaluate_pipeline records a data hash for each raw input", {
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "injected")),
+      list(name = "raw_b", source = list(type = "injected")),
+      list(name = "total", expr = "raw_a + raw_b")
+    )
+  ))
+  run <- function(raw_a, raw_b = ts(c(1, 1, 1), start = c(2024, 1), frequency = 4)) {
+    evaluate_pipeline(spec, inputs = list(raw_a = raw_a, raw_b = raw_b), progress = FALSE)
+  }
+  raw_a <- ts(c(1, 2, 3), start = c(2024, 1), frequency = 4)
+
+  result <- run(raw_a)
+  expect_named(result$input_hashes, c("raw_a", "raw_b"))
+  expect_match(result$input_hashes, "^[0-9a-f]{32}$")
+
+  # Same data, same hash; attributes outside the data don't matter.
+  attr(raw_a, "note") <- "ignored"
+  expect_equal(run(raw_a)$input_hashes, result$input_hashes)
+
+  changed_value <- run(ts(c(1, 2, 4), start = c(2024, 1), frequency = 4))$input_hashes
+  expect_false(changed_value[["raw_a"]] == result$input_hashes[["raw_a"]])
+  expect_equal(changed_value[["raw_b"]], result$input_hashes[["raw_b"]])
+
+  shifted <- run(
+    ts(c(1, 2, 3), start = c(2024, 2), frequency = 4),
+    ts(c(1, 1, 1), start = c(2024, 2), frequency = 4)
+  )$input_hashes
+  expect_false(shifted[["raw_a"]] == result$input_hashes[["raw_a"]])
+})
+
+test_that("input hashes leave out missing inputs and work for xts", {
+  skip_if_not_installed("xts")
+  spec <- normalize_pipeline(list(
+    series = list(
+      list(name = "raw_a", source = list(type = "injected")),
+      list(name = "raw_b", source = list(type = "injected")),
+      list(name = "total", expr = "raw_a + raw_b")
+    )
+  ))
+  raw_a <- xts::xts(c(1, 2), order.by = as.Date(c("2024-01-01", "2024-02-01")))
+
+  result <- evaluate_pipeline(spec, inputs = list(raw_a = raw_a), progress = FALSE) |>
+    suppressWarnings()
+  expect_named(result$input_hashes, "raw_a")
+  expect_match(result$input_hashes[["raw_a"]], "^[0-9a-f]{32}$")
+})

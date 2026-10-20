@@ -85,6 +85,30 @@ test_that("series_lineage adds status, period and latest value from a result", {
   expect_equal(series_lineage(result, "scaled")$status$status, "ok")
 })
 
+test_that("series_lineage reports the data hash of raw sources from a result", {
+  plan <- lineage_plan()
+  scale <- function(x, factor) x * factor
+  result <- evaluate_pipeline(
+    plan,
+    inputs = list(raw_a = ts(c(1, 2, 3, 4), start = c(2020, 1), frequency = 4)),
+    transforms = list(scale = scale),
+    progress = FALSE
+  ) |> suppressWarnings()
+  hash <- result$input_hashes[["raw_a"]]
+
+  combined <- series_lineage(result, "combined")
+  expect_equal(combined$raw_sources$hash[combined$raw_sources$series == "raw_a"], hash)
+  expect_true(is.na(combined$raw_sources$hash[combined$raw_sources$series == "raw_b"]))
+  expect_equal(series_lineage(result, "raw_a")$status$input_hash, hash)
+  expect_true(is.na(series_lineage(result, "scaled")$status$input_hash))
+  expect_true(all(is.na(series_lineage(plan, "combined")$raw_sources$hash)))
+
+  dir <- withr::local_tempdir()
+  document_pipeline(result, dir)
+  expect_true(any(grepl(sprintf("**Data hash:** `%s`", hash), readLines(file.path(dir, "raw_a.md")), fixed = TRUE)))
+  expect_true(any(grepl(sprintf("data hash `%s`", hash), readLines(file.path(dir, "scaled.md")), fixed = TRUE)))
+})
+
 test_that("document_pipeline writes an index and one Markdown page per series", {
   dir <- withr::local_tempdir()
   files <- document_pipeline(lineage_plan(), dir, transform_descriptions = c(scale = "Multiply by a factor"))

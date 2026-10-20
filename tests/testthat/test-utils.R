@@ -72,3 +72,12 @@ test_that("validation errors show user-supplied names verbatim", {
     fixed = TRUE
   )
 })
+
+test_that("hashes are the same on every platform", {
+  # Fixed values: lines must end in "\n" on Windows too.
+  expect_equal(md5_text(c("a", "b")), "dd8c6a395b5dd36c56d23275028f526c")
+  expect_equal(
+    series_hash(ts(c(1, 2, 3), start = c(2024, 1), frequency = 4)),
+    "3f189d3dd56a58dc53492b1b93c631a6"
+  )
+})

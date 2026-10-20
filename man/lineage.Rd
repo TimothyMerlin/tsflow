@@ -23,8 +23,9 @@ step that uses them. Names may also be the arithmetic steps `add`, `sub`,
 `mul` and `div`.}
 
 \item{result}{Optional `PipelineResult` from running the pipeline. Adds each
-series' status, the period it covers and its latest value. Defaults to
-`plan` when `plan` is itself a result.}
+series' status, the period it covers and its latest value, and the hash
+of each raw series' data (see `result$input_hashes` in
+[evaluate_pipeline()]). Defaults to `plan` when `plan` is itself a result.}
 
 \item{dir}{Directory to write the Markdown files to. Created if needed.}
 }
