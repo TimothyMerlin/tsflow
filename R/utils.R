@@ -66,11 +66,14 @@ assert_inherits <- function(x, class_name, what) {
 }
 
 # MD5 of a character vector, one element per line. Goes through a temporary
-# file because `tools::md5sum()` only hashes files before R 4.5.
+# file because `tools::md5sum()` only hashes files before R 4.5; the file is
+# written in binary mode so lines end in "\n" on Windows too.
 md5_text <- function(lines) {
   file <- tempfile()
   on.exit(unlink(file), add = TRUE)
-  writeLines(lines, file, useBytes = TRUE)
+  con <- file(file, open = "wb")
+  writeLines(lines, con, useBytes = TRUE)
+  close(con)
   unname(tools::md5sum(file))
 }
 
