@@ -67,8 +67,6 @@ write_pipeline <- function(x, path) {
   invisible(path)
 }
 
-#' @rdname read_pipeline
-#' @export
 read_pipeline_csv <- function(path) {
   if (!is_scalar_string(path)) {
     fail("`path` must be a single string")

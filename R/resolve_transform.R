@@ -1,22 +1,6 @@
-#' Resolve Transform Functions
-#'
-#' Resolves a transform name used in a pipeline to an R function.
-#'
-#' Bare names such as `scale` are looked up in the `transforms` registry.
-#' Namespaced names such as `stats::lag` are resolved directly from the
-#' package and do not need to be registered.
-#'
-#' Any installed package may be used for namespaced transforms. To restrict
-#' them, for example when running pipeline files from other people, set
-#' `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
-#'
-#' @param name A bare transform name or namespaced function reference such as
-#'   `stats::lag`.
-#' @param transforms A named list of functions used to resolve bare transform
-#'   names.
-#'
-#' @return An R function.
-#' @export
+# Resolve a transform name to a function: bare names from the `transforms`
+# registry, `pkg::fn` from the package (restricted by
+# `options(tsflow.allowed_packages)` when set).
 resolve_transform <- function(name, transforms = list()) {
   if (!is_scalar_string(name)) {
     fail("transform name must be a single string")

@@ -74,7 +74,10 @@ A raw series comes from `inputs` if it is there, otherwise from the
 
   Transform names may be authored either as namespaced references
   such as `stats::lag` or as bare names registered in `transforms`, e.g.
-  `transforms = list(scale = scale)`.
+  `transforms = list(scale = scale)`. Any installed package may be used for
+  namespaced transforms; to restrict them, for example when running
+  pipeline files from other people, set
+  `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
 
   `hooks$binary_op(op, left, right)`, when supplied, evaluates `add`, `sub`,
   `mul` and `div` steps instead of the default arithmetic.

@@ -24,21 +24,9 @@
 #' `expr: "b + c"` and then `expr: "a / b_plus_c"`. The left side has no such
 #' limit, so `(a + b) / c` works.
 #'
-#' @param x An R object representing a pipeline component.
-#' @param steps A list of MVP `steps` entries.
-#' @param vars Optional named list of shared atomic literal variables used to
-#'   resolve explicit `var` references inside step arguments.
+#' @param x A parsed pipeline, as returned by [read_pipeline()].
 #'
-#' @return
-#' `normalize_pipeline()` returns a `PipelineSpec` object.
-#'
-#' `normalize_series()` returns a `SeriesSpec` object.
-#'
-#' `normalize_source()` returns a `SourceSpec` object.
-#'
-#' `normalize_steps()` and `normalize_step_arg()` return expression nodes.
-#'
-#' @name normalize_pipeline
+#' @return A `PipelineSpec` object.
 #' @export
 normalize_pipeline <- function(x) {
   assert_named_list(x, "pipeline")
@@ -84,8 +72,6 @@ normalize_pipeline <- function(x) {
   )
 }
 
-#' @rdname normalize_pipeline
-#' @export
 normalize_series <- function(x, vars = NULL) {
   assert_named_list(x, "series entry")
 
@@ -147,8 +133,6 @@ normalize_series <- function(x, vars = NULL) {
   }
 }
 
-#' @rdname normalize_pipeline
-#' @export
 normalize_source <- function(x) {
   assert_named_list(x, "source")
 
@@ -165,8 +149,6 @@ normalize_source <- function(x) {
   new_source_spec(type = type, config = config)
 }
 
-#' @rdname normalize_pipeline
-#' @export
 normalize_steps <- function(steps, vars = NULL) {
   if (!is.list(steps) || length(steps) == 0L) {
     fail("`steps` must be a non-empty list")
@@ -220,8 +202,6 @@ normalize_steps <- function(steps, vars = NULL) {
   current
 }
 
-#' @rdname normalize_pipeline
-#' @export
 normalize_step_arg <- function(x, vars = NULL) {
   if (is.null(x)) {
     return(new_literal_node(NULL))
