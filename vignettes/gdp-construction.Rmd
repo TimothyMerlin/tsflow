@@ -223,3 +223,34 @@ constr_nom_result$outputs$construction.nominal.quarterly
 
 To run steps in parallel, or to keep results between sessions, use
 `tar_tsflow()` with `targets`; see the README section "Running With targets".
+
+## Document The Pipeline
+
+`series_lineage()` describes one series: its definition step by step, which
+input feeds which transform argument, the shared parameters it uses, its raw
+sources and the series that use it. Passing a result adds its status, period
+and latest value:
+
+```{r, eval = has_runtime_pkgs}
+descriptions <- c(
+    jsa = "Temporal disaggregation onto the seasonally adjusted indicator",
+    real_gr_nom = "Real level from growth rates and a base-year level",
+    a2q_sum = "Annual to quarterly, Chow-Lin with an indicator"
+)
+
+series_lineage(
+    plan,
+    "construction.real.quarterly",
+    transform_descriptions = descriptions,
+    result = result
+)
+```
+
+`document_pipeline()` writes the same information for every series as Markdown
+pages plus an index, ready for GitHub, pkgdown or Quarto:
+
+```{r, eval = has_runtime_pkgs}
+docs_dir <- file.path(tempdir(), "gdp-lineage")
+files <- document_pipeline(plan, docs_dir, transform_descriptions = descriptions, result = result)
+basename(files)
+```

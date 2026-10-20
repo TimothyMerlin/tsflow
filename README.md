@@ -208,6 +208,28 @@ a node highlights the upstream calculation path used to produce it and fades
 unrelated nodes. The widget also shows the selected node and its upstream path
 in an on-page details panel.
 
+## Lineage Documentation
+
+`document_pipeline()` writes one Markdown page per series plus an index: how
+the series is defined step by step, which input feeds which transform argument,
+the shared `vars` it uses, a Mermaid diagram of its upstream lineage down to
+the raw sources, and the series that use it. The pages render on GitHub, in
+pkgdown and in Quarto.
+
+```r
+plan <- plan_pipeline("gdp_construction.csv", transforms = transforms)
+
+document_pipeline(
+  plan,
+  "docs/lineage",
+  transform_descriptions = c(a2q_sum = "Annual to quarterly, Chow-Lin"),
+  result = result   # optional: adds status, period and latest value
+)
+```
+
+`series_lineage(plan, "construction.real.quarterly")` returns the same
+information for one series as an R list, for building other formats.
+
 ## Example Files
 
 The package includes:

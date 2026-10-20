@@ -236,7 +236,7 @@ normalize_step_arg <- function(x, vars = NULL) {
     if (is.null(vars) || !(x$var %in% names(vars))) {
       fail(sprintf("step arg references unknown var `%s`", x$var))
     }
-    return(new_literal_node(vars[[x$var]]))
+    return(new_literal_node(vars[[x$var]], var = x$var))
   }
 
   if (is.list(x) && identical(names(x), "call")) {
