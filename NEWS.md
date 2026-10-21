@@ -1,5 +1,21 @@
 # tsflow (development version)
 
+* New `use_tsflow_pipeline()` adds named CSV or YAML pipelines to packages and
+  ordinary projects, with package registry-validation tests and protection
+  against existing pipeline files and sidecars.
+
+* A new advanced package-hooks vignette explains when to use hooks, their
+  contracts and registry setup, with an executable provenance example and
+  explicit alignment checks. Introductory and runtime docs link to the guide.
+
+* New `create_tsflow_package()` and `use_tsflow()` scaffold pipeline packages
+  and analysis projects with runnable examples, setup guidance, and optional
+  targets execution. `use_tsflow_transform()` and `use_tsflow_hook()` add
+  documented function and test stubs to packages.
+* New `registry_roclet()` generates explicit package registries from `@tsflow`
+  tags; `package_registry()` resolves tagged transforms and hooks from installed
+  or development package namespaces.
+
 * `tar_tsflow()` and cached `execute_pipeline()` runs now track package versions
   for transforms, hooks, and loaders registered under bare names, so updating
   their packages invalidates the targets that use them.

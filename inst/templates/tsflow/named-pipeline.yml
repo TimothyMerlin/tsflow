@@ -1,0 +1,10 @@
+# Replace this starter calculation with your own series and steps.
+vars:
+  factor: 10
+outputs:
+  - {{output}}
+series:
+  - name: raw
+    source: {type: injected}
+  - name: {{output}}
+    expr: 'raw * @factor'

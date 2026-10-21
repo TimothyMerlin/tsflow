@@ -14,8 +14,9 @@
 #' @param transforms A named list of functions used to resolve bare transform
 #'   names during validation and execution. Namespaced transforms such as
 #'   `stats::lag` are resolved directly and do not need to be registered.
-#' @param hooks Optional named list of evaluation hooks for advanced runtimes.
-#'   Supported hooks are `binary_op` and `postprocess`; see Details.
+#' @param hooks Optional named list of advanced evaluation hooks; see the
+#'   [package hooks guide](../doc/package-hooks.html) or
+#'   `vignette("package-hooks", package = "tsflow")`.
 #' @param progress Whether to show execution progress in interactive sessions.
 #'   Defaults to `getOption("tsflow.progress", TRUE)`.
 #' @param error_mode Execution failure mode. `"fail"` stops on the first node
@@ -49,8 +50,7 @@
 #'   period: observations outside the overlap are dropped without a warning.
 #'   Series that don't overlap at all, `ts` series with different frequencies,
 #'   and a `ts` combined with an `xts` are errors. Combining a series with a
-#'   number is not checked. A `binary_op` hook replaces this arithmetic,
-#'   including the checks. Transforms handle alignment themselves.
+#'   number is not checked. Transforms handle alignment themselves.
 #'
 #'   Transform names may be authored either as namespaced references
 #'   such as `stats::lag` or as bare names registered in `transforms`, e.g.
@@ -58,11 +58,6 @@
 #'   namespaced transforms; to restrict them, for example when running
 #'   pipeline files from other people, set
 #'   `options(tsflow.allowed_packages = c("stats", "tempdisagg"))`.
-#'
-#'   `hooks$binary_op(op, left, right)`, when supplied, evaluates `add`, `sub`,
-#'   `mul` and `div` steps instead of the default arithmetic.
-#'   `hooks$postprocess(result, context)`, when supplied, is called on every
-#'   transform result after the transform function returns.
 #'
 #'   In interactive sessions, `evaluate_pipeline()` uses `progressr`
 #'   automatically when it is installed. Existing user-configured `progressr`

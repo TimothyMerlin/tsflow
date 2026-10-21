@@ -1,0 +1,8 @@
+# Shared parameters referenced as @factor in pipeline.csv.
+vars:
+  factor: 10
+# Return this final series; intermediate series remain available in the result.
+outputs:
+  - adjusted
+metadata:
+  description: Scale sample quarterly data, then multiply it by two.

@@ -133,6 +133,28 @@ test_that("document_pipeline writes an index and one Markdown page per series", 
   expect_true("| [scaled](scaled.md) | derived | A scaled |" %in% index)
 })
 
+test_that("printing a lineage can set the heading level and drop links", {
+  lineage <- series_lineage(lineage_plan(), "scaled")
+
+  page <- capture.output(print(lineage))
+  expect_equal(page[[1L]], "# scaled")
+  expect_true("## Definition" %in% page)
+  expect_true("1. Start from [raw_a](raw_a.md)" %in% page)
+
+  page <- capture.output(print(lineage, heading_level = 3, links = FALSE))
+  expect_equal(page[[1L]], "### scaled")
+  expect_true("#### Definition" %in% page)
+  expect_true("#### Used by" %in% page)
+  expect_true("1. Start from raw_a" %in% page)
+  expect_true("| raw_a | scale: x |" %in% page)
+  expect_true("- combined" %in% page)
+  expect_false(any(grepl(".md)", page, fixed = TRUE)))
+
+  expect_error(print(lineage, heading_level = 6), "`heading_level` must be a whole number from 1 to 5")
+  expect_error(print(lineage, heading_level = 1.5), "`heading_level` must be a whole number from 1 to 5")
+  expect_error(print(lineage, links = NA), "`links` must be TRUE or FALSE")
+})
+
 test_that("lineage functions validate their arguments", {
   plan <- lineage_plan()
   expect_error(series_lineage(plan, "missing"), "node `missing` is not present")

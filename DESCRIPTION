@@ -20,14 +20,17 @@ Suggests:
     igraph,
     knitr,
     progressr,
+    pkgload,
     rmarkdown,
+    roxygen2,
     targets,
     tempdisagg,
     testthat (>= 3.0.0),
+    usethis,
     visNetwork,
     withr,
     xts,
     zoo
 VignetteBuilder: knitr
 Config/testthat/edition: 3
-Config/roxygen2/version: 8.0.0
+Config/roxygen2/version: 8.1.1

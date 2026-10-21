@@ -1,0 +1,463 @@
+---
+title: "Writing pipeline packages: advanced hooks"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Writing pipeline packages: advanced hooks}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+library(tsflow)
+has_scaffolding <- all(vapply(
+  c("usethis", "roxygen2", "pkgload", "testthat", "targets"),
+  requireNamespace, logical(1), quietly = TRUE
+))
+knitr::opts_chunk$set(eval = has_scaffolding, echo = TRUE, results = "markup",
+                     collapse = TRUE, comment = "#>")
+if (has_scaffolding) {
+  original_root <- knitr::opts_knit$get("root.dir")
+  guide_source <- readLines(knitr::current_input(dir = TRUE))
+  workspace <- tempfile("tsflow-hooks-")
+  dir.create(workspace)
+  package_directory <- file.path(workspace, "mypipeline")
+  knitr::opts_knit$set(root.dir = workspace)
+  save_chunk <- function(label, destination) {
+    writeLines(knitr::knit_code$get(label), file.path(package_directory, destination))
+  }
+}
+```
+
+A **transform** is a function you use as a step in a pipeline. For example,
+you might add a step that multiplies a series by 100. The function runs wherever
+you use that step.
+
+A **hook** is a function tsflow calls at a fixed point while running the
+pipeline: after each transform, or whenever it evaluates arithmetic such as
+adding two series. You supply the hook once, rather than adding it as a step
+throughout the pipeline.
+
+Most pipelines work with transforms alone. If you are setting up your first
+package, start with the [package setup guide](getting-started.html)
+(`vignette("getting-started", package = "tsflow")`).
+
+To use hooks, pass them to the execution function in its `hooks` argument.
+Defining a hook in your package does not make tsflow use it automatically.
+
+## How hooks fit into execution
+
+### After a transform: `postprocess`
+
+When a pipeline calls a transform, tsflow first runs that function normally.
+If you supplied a `postprocess` hook, tsflow then passes the result to it. The
+value returned by the hook becomes the step's output and is passed downstream.
+
+The hook receives two arguments:
+
+- `result`: the value the transform just returned;
+- `context`: information about the transform call, including its inputs.
+
+Conceptually, execution looks like this:
+
+```r
+value <- some_transform(input)
+value <- postprocess(result = value, context = call_details)
+```
+
+This happens after each successful transform call, including nested calls.
+The hook does not run on raw inputs, aliases, or arithmetic results.
+
+### Arithmetic: `binary_op`
+
+For an arithmetic step, tsflow evaluates the left and right operands first.
+If you supplied a `binary_op` hook, tsflow calls it to perform the operation.
+The value it returns becomes the step's output.
+
+The hook receives three arguments:
+
+- `op`: the operation name, one of `"add"`, `"sub"`, `"mul"`, or `"div"`;
+- `left` and `right`: the evaluated operand values.
+
+For a step written as `left + right`, the call is conceptually:
+
+```r
+value <- binary_op(op = "add", left = left, right = right)
+```
+
+This hook **replaces the default arithmetic and alignment checks**. It must
+perform the operation and any checks your package needs. It has no `context`
+argument. Arithmetic performed inside a transform is still controlled by that
+transform's own code.
+
+Both hooks return the actual values used by the pipeline. They must retain
+whatever time index, class, and metadata downstream steps need.
+
+### The transform call context
+
+The `postprocess` context contains:
+
+- `kind`: currently `"transform"`;
+- `transform_name`: the registered or namespaced transform name;
+- `input_value`: the incoming value for a piped step, or `NULL` for a call without
+  an implicit piped input;
+- `args`: the list of evaluated positional arguments, excluding the implicit
+  piped input;
+- `kwargs`: the named list of evaluated keyword arguments.
+
+## Create a package with the scaffolding
+
+Install `usethis`, `roxygen2`, `testthat`, and `targets` if needed. Start by
+creating a package with targets support:
+
+```{r create-package, results="hide", message=FALSE}
+tsflow::create_tsflow_package("mypipeline", targets = TRUE)
+```
+
+Open the new package in your editor and work from its root:
+
+```{r enter-package, eval=FALSE}
+setwd("mypipeline")
+```
+
+```{r enter-workspace, include=FALSE}
+knitr::opts_knit$set(root.dir = package_directory)
+```
+
+Now use the helpers to add a transform, both hooks, and a named pipeline:
+
+```{r package-setup, results="hide", message=FALSE}
+tsflow::use_tsflow_transform("rebuild")
+tsflow::use_tsflow_hook("postprocess")
+tsflow::use_tsflow_hook("binary_op")
+tsflow::use_tsflow_pipeline("sources", format = "yaml")
+```
+
+These commands create the function stubs and tests, along with
+`inst/extdata/sources.yml`. `_targets.R` already exists from package creation.
+The rest of this guide fills in these files and runs that pipeline.
+
+The helpers add `@tsflow transform` and `@tsflow hook` tags for you. After you
+implement the stubs, `roxygen2::roxygenise()` generates the package registry in
+`inst/tsflow/registry.yml`. Only tagged functions enter that registry; ordinary
+helpers remain untagged. Neither transforms nor hooks need to be exported.
+Unknown hook slots and duplicate registrations for one slot fail during
+documentation.
+
+## Worked example: preserve source provenance
+
+Suppose raw series carry a `sources` attribute listing the datasets they came
+from. A transform may rebuild a time series and drop that attribute. Arithmetic
+must combine the provenance of both operands.
+
+This example uses univariate `ts` series and numeric scalar constants. Its
+arithmetic policy requires identical time indexes for two series, which is
+stricter than tsflow's default behavior of using their overlapping period.
+
+Add the following ordinary helper in `R/source_ids.R`. It has no registry tag:
+
+```{r source-helper}
+source_ids <- function(x) {
+  ids <- attr(x, "sources", exact = TRUE)
+  if (is.null(ids)) character() else ids
+}
+```
+
+Replace the generated `R/rebuild.R` stub with this transform, which deliberately
+rebuilds the series:
+
+```{r transform}
+#' Rebuild a Scaled Series
+#' @param x An incoming time series.
+#' @param factor A multiplier.
+#' @return A rebuilt time series.
+#' @tsflow transform
+rebuild <- function(x, factor = 1) {
+  stats::ts(as.numeric(x) * factor,
+            start = stats::start(x), frequency = stats::frequency(x))
+}
+```
+
+The postprocessing hook restores provenance from the piped input and any
+additional arguments. This also covers transforms that combine several series.
+Replace the generated `R/tsflow_postprocess.R` stub with the definition below;
+you can rename the file to `R/preserve_sources.R` too. Put `source_ids()` in
+`R/source_ids.R`, and update the generated hook test to call `preserve_sources()`.
+The function name is your choice: `@tsflow hook postprocess` assigns it to the
+fixed `postprocess` slot in the registry.
+
+```{r postprocess}
+#' Preserve Provenance After Every Transform
+#' @param result The transform result.
+#' @param context Evaluated transform call information.
+#' @return The result with source provenance attached.
+#' @tsflow hook postprocess
+preserve_sources <- function(result, context) {
+  sources <- c(
+    source_ids(result), source_ids(context$input_value),
+    unlist(lapply(context$args, source_ids), use.names = FALSE),
+    unlist(lapply(context$kwargs, source_ids), use.names = FALSE)
+  )
+  attr(result, "sources") <- if (length(sources)) unique(sources) else NULL
+  result
+}
+```
+
+The arithmetic hook validates operand types and time indexes before applying
+an operation, then merges their provenance. In a real package, test these
+checks against every series type your runtime supports. This implementation
+rejects multivariate series and `xts`; it does not silently coerce them. Replace
+the generated `R/tsflow_binary_op.R` stub with this definition:
+
+```{r arithmetic}
+#' Preserve Provenance Through Pipeline Arithmetic
+#' @param op One of add, sub, mul, div.
+#' @param left,right Evaluated series or numeric scalar operands.
+#' @return The arithmetic result with source provenance attached.
+#' @tsflow hook binary_op
+tsflow_binary_op <- function(op, left, right) {
+  is_series <- function(x) stats::is.ts(x) && is.null(dim(x))
+  is_scalar <- function(x) is.numeric(x) && !is.object(x) &&
+    is.null(dim(x)) && length(x) == 1L
+  supported <- function(x) is_series(x) || is_scalar(x)
+
+  if (!supported(left) || !supported(right)) {
+    stop("Expected univariate ts series or numeric scalars")
+  }
+  if (is_series(left) && is_series(right) &&
+      !isTRUE(all.equal(stats::tsp(left), stats::tsp(right)))) {
+    stop("Series must have the same time index")
+  }
+  result <- switch(
+    op, add = left + right, sub = left - right,
+    mul = left * right, div = left / right,
+    stop("Unknown operation: ", op)
+  )
+  sources <- unique(c(source_ids(left), source_ids(right)))
+  attr(result, "sources") <- if (length(sources)) sources else NULL
+  result
+}
+```
+
+### Supply the inputs
+
+Add this data-loading function in `R/sources_inputs.R`. It is separate from the
+starter's `example_inputs()` so each pipeline can have its own inputs. It is
+exported for use in `_targets.R`, but has no `@tsflow` tag because it supplies
+raw data rather than acting as a transform or hook.
+
+```{r package-inputs}
+#' Inputs for the Sources Pipeline
+#' @return A named list of quarterly time series with source information.
+#' @export
+sources_inputs <- function() {
+  inputs <- list(
+    observed = stats::ts(1:3, start = c(2020, 1), frequency = 4),
+    baseline = stats::ts(10:12, start = c(2020, 1), frequency = 4)
+  )
+  attr(inputs$observed, "sources") <- "survey"
+  attr(inputs$baseline, "sources") <- "reference"
+  inputs
+}
+```
+
+### Fill in the generated pipeline
+
+Replace the starter contents of `inst/extdata/sources.yml` with this YAML.
+It declares two raw inputs, doubles `observed` with `rebuild()`, then adds
+`baseline` and requests `combined` as the final output. This file defines the
+calculation; execution happens in the following section.
+
+```yaml
+outputs: [combined]
+series:
+  - name: observed
+    source: {type: injected}
+  - name: baseline
+    source: {type: injected}
+  - name: scaled
+    expr: 'rebuild(observed, factor = 2)'
+  - name: combined
+    expr: 'scaled + baseline'
+```
+
+```{r save-example-files, include=FALSE}
+files <- c("source-helper" = "R/source_ids.R", "transform" = "R/rebuild.R",
+           "postprocess" = "R/tsflow_postprocess.R",
+           "arithmetic" = "R/tsflow_binary_op.R",
+           "package-inputs" = "R/sources_inputs.R")
+for (label in names(files)) save_chunk(label, files[[label]])
+first <- which(guide_source == "```yaml")
+last <- which(guide_source == "```" & seq_along(guide_source) > first)[[1L]]
+writeLines(guide_source[seq.int(first + 1L, last - 1L)], "inst/extdata/sources.yml")
+test_path <- "tests/testthat/test-tsflow_postprocess.R"
+writeLines(gsub("tsflow_postprocess(", "preserve_sources(",
+                readLines(test_path), fixed = TRUE), test_path)
+```
+
+### Document and test the package
+
+Update the generated postprocessing test to call `preserve_sources()` after
+renaming that hook, then document and test:
+
+```{r document-package, results="hide", message=FALSE}
+roxygen2::roxygenise()
+testthat::test_local()
+```
+
+The generated test for `sources.yml` validates it against the package registry.
+Extend the tests with expected values and source attributes as you develop the
+calculation. The starter CSV and its runner remain available alongside this
+new pipeline.
+
+## Run the pipeline directly
+
+Load the package and read its generated registry. This obtains the transform
+and hook functions from the files you just edited:
+
+```{r registry}
+pkgload::load_all(".")
+registry <- tsflow::package_registry("mypipeline")
+path <- "inst/extdata/sources.yml"
+inputs <- mypipeline::sources_inputs()
+transforms <- registry$transforms
+hooks <- registry$hooks
+```
+
+First, run without hooks. The numbers are calculated, but the rebuilt series
+has lost its source information:
+
+```{r without-hooks}
+without_hooks <- tsflow::execute_pipeline(
+  path, inputs = inputs, transforms = transforms, progress = FALSE
+)
+without_hooks$values$combined
+attr(without_hooks$values$combined, "sources")
+```
+
+Now supply the hooks. The numbers stay the same, and the final series records
+both contributing datasets:
+
+```{r with-hooks}
+
+result <- tsflow::execute_pipeline(
+  path, inputs = inputs, transforms = transforms, hooks = hooks, progress = FALSE
+)
+result$values$combined
+
+attr(result$values$combined, "sources")
+```
+
+```{r check-results, include=FALSE}
+stopifnot(is.null(attr(without_hooks$values$scaled, "sources")))
+stopifnot(
+  identical(as.numeric(result$values$scaled), c(2, 4, 6)),
+  identical(as.numeric(result$values$combined), c(12, 15, 18)),
+  identical(as.numeric(without_hooks$values$scaled), as.numeric(result$values$scaled)),
+  identical(as.numeric(without_hooks$values$combined), as.numeric(result$values$combined)),
+  is.null(attr(without_hooks$values$combined, "sources")),
+  identical(attr(result$values$scaled, "sources"), "survey"),
+  identical(attr(result$values$combined, "sources"), c("survey", "reference")),
+  identical(stats::tsp(result$values$combined), stats::tsp(inputs$observed))
+)
+```
+
+The hook's stricter alignment rule must also be tested. Here the series still
+overlap, but the different starting quarter violates this runtime's policy:
+
+```{r alignment-error}
+bad_inputs <- inputs
+bad_inputs$baseline <- stats::ts(10:12, start = c(2020, 2), frequency = 4)
+failure <- tryCatch(
+  tsflow::execute_pipeline(
+    path, inputs = bad_inputs, transforms = transforms, hooks = hooks,
+    progress = FALSE
+  ),
+  error = function(e) conditionMessage(e)
+)
+failure
+```
+
+```{r check-alignment, include=FALSE}
+stopifnot(is.character(failure),
+          grepl("same[[:space:]]+time[[:space:]]+index", failure))
+```
+
+A package test suite should check expected values, provenance, and time indexes,
+not just that its hooks can be called. Also test positional and keyword series
+arguments in transforms, scalar arithmetic, all four operators, and unsupported
+or misaligned inputs. Run `testthat::test_local()` after documenting the package.
+
+## Run the same pipeline with targets
+
+### During package development
+
+Creating the package with `targets = TRUE` already generated `_targets.R`.
+Edit its input target to use `sources_inputs()` and its pipeline path to use
+`sources.yml`. The rest of the generated structure stays the same:
+
+```{r targets, eval=FALSE}
+library(targets)
+pkgload::load_all(".")
+registry <- tsflow::package_registry("mypipeline")
+
+list(
+  tar_target(tsflow_inputs, mypipeline::sources_inputs()),
+  tsflow::tar_tsflow(
+    "inst/extdata/sources.yml",
+    transforms = registry$transforms,
+    hooks = registry$hooks
+  )
+)
+```
+
+`load_all()` loads the package's current source code during development.
+`tar_tsflow()` generates targets for the steps in the YAML, using the same
+registry as the direct run.
+
+```{r save-targets-script, include=FALSE}
+save_chunk("targets", "_targets.R")
+```
+
+Run from the package root:
+
+```{r run-targets, results="hide", message=FALSE}
+targets::tar_make(reporter = "silent")
+```
+
+Read the final target to see the same numbers and both sources:
+
+```{r targets-output}
+combined <- targets::tar_read(combined)
+combined
+attr(combined, "sources")
+```
+
+```{r check-targets, include=FALSE}
+stopifnot(identical(combined, result$values$combined))
+```
+
+If your package already exists without targets support, add it with
+`tsflow::use_tsflow(targets = TRUE)` before making these two edits.
+
+### Using an installed package
+
+For an installed-package workflow, replace `pkgload::load_all(".")` with
+`library(mypipeline)` and configure `tar_option_set(packages = "mypipeline")`.
+The pipeline above still uses a path relative to the project root; if you run
+elsewhere, locate the shipped YAML with
+`system.file("extdata", "sources.yml", package = "mypipeline", mustWork = TRUE)`.
+Install the package in each worker's library when using parallel workers:
+`load_all()` alone does not make development code available to them.
+
+Cached `execute_pipeline(store = ...)` also accepts the same hooks. Package
+versions participate in invalidation for registered package functions. During
+`load_all()` development, internal helper edits without a version bump can
+still require manual invalidation; development-code fingerprinting remains a
+separate follow-up. See `vignette("targets", package = "tsflow")` for caching
+and input tracking.
+
+
+```{r restore-workspace, include=FALSE}
+pkgload::unload("mypipeline")
+knitr::opts_knit$set(root.dir = original_root)
+```

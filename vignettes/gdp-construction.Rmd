@@ -45,101 +45,20 @@ cat(paste(readLines(meta_path), collapse = "\n"))
 ## Define Transforms
 
 This example uses real R functions with the same calling style that `tsflow`
-expects at execution time. They are defined in the vignette environment so they
-can be resolved by name during planning and execution.
+expects at execution time. They ship next to the CSV as
+`gdp_construction_transforms.R`:
+
+```{r}
+transforms_path <- system.file("examples", "gdp_construction_transforms.R", package = "tsflow")
+```
+
+```{r, eval = has_runtime_pkgs, code = readLines(transforms_path)}
+```
+
+Collect them in a named list to pass to `tsflow`:
 
 ```{r, eval = has_runtime_pkgs}
 library(tsflow)
-
-jsa <- function(
-  ts_sa,
-  ts_nsa,
-  method = "uniform",
-  conversion = "sum"
-) {
-    ts_nsa_a <- tempdisagg::ta(ts_nsa, conversion = conversion, to = "annual")
-
-    if (method == "denton-cholette") {
-        return(tempdisagg::td(
-            ts_nsa_a ~ 0 + ts_sa,
-            method = "denton-cholette",
-            criterion = "additive",
-            h = 1
-        )$values)
-    }
-
-    tempdisagg::td(
-        ts_nsa_a ~ ts_sa,
-        conversion = conversion,
-        to = "quarterly",
-        method = method
-    )$values
-}
-
-real_gr_nom <- function(ts_gr, ts_nom, base_year) {
-    ts_gr <- zoo::na.trim(ts_gr)
-    if (frequency(ts_gr) < frequency(ts_nom)) {
-        ts_nom <- tempdisagg::ta(
-            ts_nom,
-            conversion = "sum",
-            to = frequency(ts_gr)
-        )
-    }
-
-    ts_real <- ts(
-        NA,
-        start = start(ts_gr) - c(1, 0),
-        end = end(ts_gr),
-        frequency = frequency(ts_gr)
-    )
-
-    base_year_value <- as.numeric(window(
-        ts_nom,
-        start = c(base_year, 1),
-        end = c(base_year, 1)
-    ))
-    window(ts_real, start = c(base_year, 1), end = c(base_year, 1)) <- base_year_value
-
-    product_up <- (ts_gr / 100 + 1)
-    if (base_year < end(ts_gr)[1]) {
-        up_vals <- as.numeric(window(product_up, start = c(base_year + 1, 1)))
-        window(ts_real, start = c(base_year + 1, 1)) <- base_year_value * cumprod(up_vals)
-    }
-
-    product_down <- 1 / product_up
-    if (base_year > start(ts_gr)[1]) {
-        down_vals <- as.numeric(window(product_down, end = c(base_year, 1)))
-        window(ts_real, end = c(base_year - 1, 1)) <- rev(base_year_value * cumprod(rev(down_vals)))
-    }
-
-    ts_real
-}
-
-a2q_sum <- function(ts_d, indicator, conversion = "sum") {
-    ts_d <- zoo::na.trim(ts_d)
-    indicator <- zoo::na.trim(indicator)
-
-    start_td <- max(stats::time(indicator)[1], stats::time(ts_d)[1])
-    end_td <- utils::tail(stats::time(indicator), 1)
-
-    indicator <- window(indicator, start = start_td, end = end_td)
-
-    if (any(!is.na(ts_d)) && any(!is.na(indicator))) {
-        return(tempdisagg::td(
-            ts_d ~ indicator,
-            conversion = conversion,
-            to = "quarterly",
-            method = "chow-lin-maxlog"
-        )$values)
-    }
-
-    tempdisagg::td(
-        ts_d ~ 1,
-        conversion = conversion,
-        to = "quarterly",
-        method = "denton-cholette"
-    )$values
-}
 
 transforms <- list(jsa = jsa, real_gr_nom = real_gr_nom, a2q_sum = a2q_sum)
 ```
@@ -238,12 +157,20 @@ descriptions <- c(
     a2q_sum = "Annual to quarterly, Chow-Lin with an indicator"
 )
 
-series_lineage(
+lineage <- series_lineage(
     plan,
     "construction.real.quarterly",
     transform_descriptions = descriptions,
     result = result
 )
+```
+
+Printing it gives the Markdown page, rendered here:
+
+```{r, eval = has_runtime_pkgs, echo = FALSE, results = "asis"}
+cat("::: {.lineage-output}\n")
+print(lineage, heading_level = 3, links = FALSE)
+cat("\n:::\n")
 ```
 
 `document_pipeline()` writes the same information for every series as Markdown
@@ -253,4 +180,38 @@ pages plus an index, ready for GitHub, pkgdown or Quarto:
 docs_dir <- file.path(tempdir(), "gdp-lineage")
 files <- document_pipeline(plan, docs_dir, transform_descriptions = descriptions, result = result)
 basename(files)
+```
+
+```{=html}
+<style>
+.lineage-output {
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-left: 4px solid var(--bs-primary, #0d6efd);
+  border-radius: 0.375rem;
+  background: var(--bs-tertiary-bg, #f8f9fa);
+  padding: 2.25rem 1.25rem 0.5rem;
+  margin: 1rem 0 1.5rem;
+  position: relative;
+}
+.lineage-output::before {
+  content: "Rendered output";
+  position: absolute;
+  top: 0.6rem;
+  left: 1.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color, #6c757d);
+}
+.lineage-output h3 { margin-top: 0; }
+.lineage-output h4 { font-size: 1.1rem; }
+</style>
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+document.querySelectorAll("pre.mermaid > code").forEach((code) => {
+  code.parentElement.textContent = code.textContent;
+});
+mermaid.run({ querySelector: "pre.mermaid" });
+</script>
 ```

@@ -1,0 +1,248 @@
+---
+title: "Starting a pipeline project or package"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Starting a pipeline project or package}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE, collapse = TRUE, comment = "#>")
+```
+
+A tsflow project can be an ordinary analysis folder or an R package. Both use
+the same pipeline definitions and can run directly or through targets. The
+package framework adds reusable functions, a generated transform registry,
+documentation, and tests. Neither packaging nor targets is required to use tsflow.
+
+## Start a package
+
+Install `usethis` and `roxygen2` if needed, and `testthat` to run the generated
+tests. The walkthrough uses those packages directly; devtools is optional.
+
+```{r}
+tsflow::create_tsflow_package("mypipeline")
+```
+
+This creates the package without switching your working directory or opening an
+editor. Open the new directory in your editor, or change to it explicitly:
+
+```{r}
+setwd("mypipeline")
+source("run.R")
+result$values$adjusted
+```
+
+The starter uses quarterly sample inputs and produces 20, 40, 60, and 80. It
+also shows `result$errors` and `result$missing_inputs`: the runner uses
+`error_mode = "collect"` so independent series can finish even when another
+series fails.
+
+The generated structure is:
+
+```text
+mypipeline/
+  DESCRIPTION                      # package dependencies and registry roclet
+  R/
+    example_inputs.R               # replace sample values with your loaders
+    scale_series.R                 # tagged example transform
+    run_pipeline.R                 # exported direct execution entry point
+  inst/
+    extdata/
+      pipeline.csv                 # series and steps
+      pipeline.meta.yml            # shared variables and outputs
+    tsflow/
+      registry.yml                 # generated; commit with the package
+  tests/
+    testthat.R
+    testthat/test-pipeline.R        # pipeline validation and expected output
+  run.R                            # run directly during development
+  README.md                        # walkthrough for this package
+```
+
+`man/` and `NAMESPACE` are generated during creation. Complete the package's
+`DESCRIPTION` with your title, authors, description, and chosen license as you
+would for any new R package.
+
+## Replace the example
+
+Start with `R/example_inputs.R`. It returns a named list of raw series; list names
+must match the raw names referenced in the CSV. You can read files, call an API,
+or accept inputs supplied by the caller. Keep credentials outside your code.
+
+The example CSV is:
+
+```csv
+name,input,step_1,step_2
+scaled,raw,scale_series(factor = @factor),
+adjusted,scaled,,mul(2)
+```
+
+Its sidecar defines `factor: 10` under `vars` and requests `adjusted` under
+`outputs`. Replace those series, steps, parameters, and outputs with your own.
+The CSV and sidecar ship inside the package; `run_pipeline()` finds them with
+`system.file()`, so an installed package can run from another working directory.
+
+## Add a transform and its test
+
+```{r}
+tsflow::use_tsflow_transform("rebase")
+```
+
+This creates `R/rebase.R` and `tests/testthat/test-rebase.R`. The first argument
+receives the incoming series; subsequent parameters can be supplied by the CSV.
+For example, replace the stub with:
+
+```{r}
+#' Rebase a Series
+#'
+#' @param x An incoming time series.
+#' @param base The reference value.
+#' @return The series as an index with reference value 100.
+#' @tsflow transform
+rebase <- function(x, base) {
+  x / base * 100
+}
+```
+
+Update its test to check expected values and preservation of the time index.
+Then regenerate the registry and documentation:
+
+```{r}
+roxygen2::roxygenise()
+testthat::test_local()
+```
+
+If you already use devtools, `devtools::document()` and `devtools::test()` perform
+the corresponding documentation and testing steps.
+
+The `@tsflow transform` tag registers the function under its own name. Tagged
+functions need not be exported; helpers without a tag stay private. The configured
+roxygen roclet writes `inst/tsflow/registry.yml`. Regenerate it whenever you add,
+rename, or remove a tagged function, and commit it with the code.
+
+You can now use `rebase(base = @base)` in the CSV, adding the shared `base`
+parameter to the sidecar. Update the starter pipeline test as its expected output
+changes.
+
+The registry can also be used explicitly:
+
+```{r}
+pkgload::load_all()
+registry <- tsflow::package_registry("mypipeline")
+plan <- tsflow::plan_pipeline(
+  "inst/extdata/pipeline.csv", transforms = registry$transforms
+)
+```
+
+After installing the package, callers can run it directly:
+
+```{r}
+mypipeline::run_pipeline()
+mypipeline::run_pipeline(inputs = my_inputs)
+```
+
+## Add another pipeline
+
+Use the scaffolding helper to add a named pipeline to the same package:
+
+```{r}
+tsflow::use_tsflow_pipeline("forecasting")
+# Or choose YAML for a different pipeline:
+tsflow::use_tsflow_pipeline("sources", format = "yaml")
+```
+
+CSV creates `inst/extdata/forecasting.csv` and `forecasting.meta.yml`; YAML
+creates `inst/extdata/sources.yml` with its parameters and outputs in that file.
+Each also gets a validation test under `tests/testthat/`, using the package's
+transform registry. The starter takes an input named `raw` and multiplies it
+by a shared `factor` of 10. Replace those steps with your calculation and extend
+the test with expected values.
+
+Existing files are protected, including another format or sidecar with the same
+name. Adding a pipeline does not change the default runner or `_targets.R`.
+Select its path when running it:
+
+```{r}
+mypipeline::run_pipeline(path = "inst/extdata/forecasting.csv")
+```
+
+From an ordinary project's root, the same helper puts the pipeline files there
+and does not add package tests. Supply the selected path to
+`tsflow::execute_pipeline()` or `tsflow::tar_tsflow()`.
+
+## Use targets when you want it
+
+Include targets at creation time, or enable it later:
+
+```{r}
+tsflow::create_tsflow_package("anotherpipeline", targets = TRUE)
+# Or, from the existing mypipeline root:
+tsflow::use_tsflow(targets = TRUE)
+```
+
+Install `targets` before running the generated `_targets.R`:
+
+```{r}
+targets::tar_make()
+targets::tar_read(adjusted)
+```
+
+The script calls `tar_tsflow()` with the same CSV, registry, and input function.
+Direct execution remains available. Existing starter files are preserved, so
+enabling targets later does not reset your pipeline or overwrite your code. If
+you already have `_targets.R`, add the pipeline to its existing target list by
+hand. The package starter's structure is:
+
+```{r}
+library(targets)
+pkgload::load_all()
+registry <- tsflow::package_registry("mypipeline")
+
+list(
+  tar_target(tsflow_inputs, example_inputs()),
+  tsflow::tar_tsflow(
+    "inst/extdata/pipeline.csv",
+    transforms = registry$transforms,
+    hooks = registry$hooks
+  )
+)
+```
+
+For real input files, track their paths with `targets::tar_target(...,
+format = "file")` and load those tracked files in a downstream target. External
+inputs hidden inside a function are not automatically monitored by targets.
+See `vignette("targets", package = "tsflow")` for input tracking and caching.
+
+Package versions are recorded for registered package functions. During
+`pkgload::load_all()` development, changing only an internal helper without
+bumping the package version can leave stale targets. Invalidate affected targets
+before rerunning; package-code fingerprinting is a planned follow-up.
+
+## Start without a package
+
+```{r}
+tsflow::use_tsflow("myanalysis")
+# Or include targets immediately:
+tsflow::use_tsflow("myanalysis", targets = TRUE)
+```
+
+An ordinary project puts `pipeline.csv` and `pipeline.meta.yml` at its root, with
+supporting functions under `R/`. Run `source("run.R")` from that root. Functions
+are sourced and registered explicitly; no `DESCRIPTION`, registry roclet, or
+package installation is required.
+
+Add your own functions to `R/`, then source and register them in `run.R` and, if
+used, `_targets.R`. The same pipeline format and runtime APIs apply. To move to
+a package, create a package scaffold and move the pipeline into `inst/extdata/`
+and the functions into `R/`, tagging the transforms you wish to register.
+
+## Advanced: evaluation hooks
+
+Most pipeline packages need only transforms. If a pipeline author chooses when
+an operation applies, it is a transform; rules that must hold across evaluations
+of a particular kind can use hooks. See
+[Writing pipeline packages: advanced hooks](package-hooks.html)
+(`vignette("package-hooks", package = "tsflow")`) for the hook contracts,
+registry setup, and an executable provenance-preservation example.

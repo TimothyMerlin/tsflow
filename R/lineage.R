@@ -102,9 +102,17 @@ document_pipeline <- function(plan, dir, transform_descriptions = NULL, result =
   invisible(c(index_path, paths))
 }
 
+#' @param x A `SeriesLineage` from `series_lineage()`.
+#' @param heading_level Markdown heading level of the series title, from 1 to
+#'   5. Section headings are one level below. Use a higher level to embed the
+#'   page in a larger document, e.g. a vignette chunk with `results = "asis"`.
+#' @param links Whether series names link to their `<series>.md` pages. Set to
+#'   `FALSE` when those pages are not next to the output.
+#' @param ... Unused.
+#' @rdname lineage
 #' @export
-print.SeriesLineage <- function(x, ...) {
-  cat(lineage_markdown(x), sep = "\n")
+print.SeriesLineage <- function(x, heading_level = 1L, links = TRUE, ...) {
+  cat(lineage_markdown(x, heading_level = heading_level, links = links), sep = "\n")
   invisible(x)
 }
 
@@ -283,7 +291,10 @@ lineage_mermaid <- function(lineage) {
 md_dot_separator <- paste0(" ", intToUtf8(0xB7), " ")
 md_dash_separator <- paste0(" ", intToUtf8(0x2014), " ")
 
-md_link <- function(name) {
+md_link <- function(name, links = TRUE) {
+  if (!links) {
+    return(name)
+  }
   sprintf("[%s](%s.md)", name, name)
 }
 
@@ -292,10 +303,21 @@ md_cell <- function(x) {
   gsub("|", "\\|", x, fixed = TRUE)
 }
 
-lineage_markdown <- function(lineage) {
+lineage_markdown <- function(lineage, heading_level = 1L, links = TRUE) {
+  if (!is.numeric(heading_level) || length(heading_level) != 1L || is.na(heading_level) ||
+    heading_level != as.integer(heading_level) || heading_level < 1L || heading_level > 5L) {
+    fail("`heading_level` must be a whole number from 1 to 5")
+  }
+  if (!is.logical(links) || length(links) != 1L || is.na(links)) {
+    fail("`links` must be TRUE or FALSE")
+  }
+  title <- strrep("#", heading_level)
+  section <- strrep("#", heading_level + 1L)
+  link <- function(name) md_link(name, links)
+
   kind_label <- if (identical(lineage$kind, "raw")) "Raw series" else "Derived series"
   lines <- c(
-    sprintf("# %s", lineage$name),
+    sprintf("%s %s", title, lineage$name),
     "",
     paste(c(sprintf("*%s*", kind_label), lineage$description), collapse = md_dot_separator)
   )
@@ -316,7 +338,7 @@ lineage_markdown <- function(lineage) {
 
   if (identical(lineage$kind, "raw")) {
     config <- format_source_config(lineage$source$config)
-    lines <- c(lines, "", "## Source", "", sprintf("Type `%s`%s", lineage$source$type, if (nzchar(config)) sprintf(": %s", config) else ""))
+    lines <- c(lines, "", sprintf("%s Source", section), "", sprintf("Type `%s`%s", lineage$source$type, if (nzchar(config)) sprintf(": %s", config) else ""))
   } else {
     step_lines <- vapply(seq_len(nrow(lineage$steps)), function(idx) {
       row <- lineage$steps[idx, ]
@@ -330,20 +352,20 @@ lineage_markdown <- function(lineage) {
     lines <- c(
       lines,
       "",
-      "## Definition",
+      sprintf("%s Definition", section),
       "",
-      sprintf("1. Start from %s", md_link(lineage$input)),
+      sprintf("1. Start from %s", link(lineage$input)),
       step_lines,
       "",
-      "## Inputs",
+      sprintf("%s Inputs", section),
       "",
       "| Series | Used as |",
       "|---|---|",
-      sprintf("| %s | %s |", md_link(lineage$inputs$series), md_cell(lineage$inputs$used_as))
+      sprintf("| %s | %s |", link(lineage$inputs$series), md_cell(lineage$inputs$used_as))
     )
   }
 
-  lines <- c(lines, "", "## Lineage", "", lineage_mermaid(lineage))
+  lines <- c(lines, "", sprintf("%s Lineage", section), "", lineage_mermaid(lineage))
   if (nrow(lineage$raw_sources) > 0L) {
     lines <- c(
       lines,
@@ -352,7 +374,7 @@ lineage_markdown <- function(lineage) {
       "",
       sprintf(
         "- %s (`%s`%s)%s",
-        md_link(lineage$raw_sources$series),
+        link(lineage$raw_sources$series),
         lineage$raw_sources$type,
         ifelse(nzchar(lineage$raw_sources$config), paste0(": ", lineage$raw_sources$config), ""),
         ifelse(is.na(lineage$raw_sources$hash), "", sprintf("%sdata hash `%s`", md_dot_separator, lineage$raw_sources$hash))
@@ -363,9 +385,9 @@ lineage_markdown <- function(lineage) {
   lines <- c(
     lines,
     "",
-    "## Used by",
+    sprintf("%s Used by", section),
     "",
-    if (length(lineage$downstream) > 0L) sprintf("- %s", md_link(lineage$downstream)) else "Not used by other series."
+    if (length(lineage$downstream) > 0L) sprintf("- %s", link(lineage$downstream)) else "Not used by other series."
   )
 
   lines

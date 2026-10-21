@@ -1,0 +1,2 @@
+name,input,step_1
+{{output}},raw,mul(@factor)

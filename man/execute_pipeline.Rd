@@ -30,8 +30,9 @@ outputs are used if present.}
 names during validation and execution. Namespaced transforms such as
 `stats::lag` do not need to be registered.}
 
-\item{hooks}{Optional named list of evaluation hooks; see
-[evaluate_pipeline()].}
+\item{hooks}{Optional named list of advanced evaluation hooks; see the
+[package hooks guide](../doc/package-hooks.html) or
+`vignette("package-hooks", package = "tsflow")`.}
 
 \item{progress}{Whether to show execution progress in interactive sessions.
 Defaults to `getOption("tsflow.progress", TRUE)`.}
