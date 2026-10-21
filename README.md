@@ -257,6 +257,7 @@ The package includes:
 
 - `inst/examples/gdp_construction.csv`
 - `inst/examples/gdp_construction.meta.yml`
+- `inst/examples/gdp_construction_transforms.R`
 - `vignettes/gdp-construction.Rmd`
 
 The vignette is the best end-to-end walkthrough.
