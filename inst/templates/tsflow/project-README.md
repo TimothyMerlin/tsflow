@@ -27,6 +27,18 @@ No package structure is required. To grow into a package, start with
 `tsflow::create_tsflow_package("mypipeline")` and move your pipeline and functions
 into that structure. See `vignette("getting-started", package = "tsflow")`.
 
+## Add another pipeline
+
+```r
+tsflow::use_tsflow_pipeline("forecasting")
+# For a separate YAML pipeline:
+tsflow::use_tsflow_pipeline("sources", format = "yaml")
+```
+
+The helper puts the named pipeline files in this directory. Each starter expects
+an input named `raw`; edit it to define your calculation, then use its path in
+`run.R` or `_targets.R`. Existing files and pipeline selections are preserved.
+
 ## Optional targets execution
 
 Install `targets` first if needed with `install.packages("targets")`.

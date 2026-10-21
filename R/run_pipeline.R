@@ -16,8 +16,9 @@
 #' @param transforms A named list of functions used to resolve bare transform
 #'   names during validation and execution. Namespaced transforms such as
 #'   `stats::lag` do not need to be registered.
-#' @param hooks Optional named list of evaluation hooks; see
-#'   [evaluate_pipeline()].
+#' @param hooks Optional named list of advanced evaluation hooks; see the
+#'   [package hooks guide](../doc/package-hooks.html) or
+#'   `vignette("package-hooks", package = "tsflow")`.
 #' @param progress Whether to show execution progress in interactive sessions.
 #'   Defaults to `getOption("tsflow.progress", TRUE)`.
 #' @param error_mode Execution failure mode. `"fail"` stops on the first node

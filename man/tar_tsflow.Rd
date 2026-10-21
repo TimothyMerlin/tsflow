@@ -21,8 +21,9 @@ tar_tsflow(
 names, as in [evaluate_pipeline()]. See Details for how changes to
 transforms are tracked.}
 
-\item{hooks}{Optional named list of evaluation hooks; see
-[evaluate_pipeline()].}
+\item{hooks}{Optional named list of advanced evaluation hooks; see the
+[package hooks guide](../doc/package-hooks.html) or
+`vignette("package-hooks", package = "tsflow")`.}
 
 \item{inputs}{Name of a target holding a named list of raw series values,
 keyed by raw series name, or `NULL` if all raw series come from loaders.

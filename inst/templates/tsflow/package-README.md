@@ -44,6 +44,25 @@ custom inputs and a different pipeline path.
 You can also use `devtools::document()` and `devtools::test()` if you already
 use devtools; it is not required for this workflow.
 
+## Add another pipeline
+
+```r
+tsflow::use_tsflow_pipeline("forecasting")
+# For a separate YAML pipeline:
+tsflow::use_tsflow_pipeline("sources", format = "yaml")
+```
+
+The helper creates pipeline files under `inst/extdata/` and a validation test.
+Each starter expects a raw input named `raw`; edit its steps, parameters, and
+test for your calculation. Choose its path explicitly when running it:
+
+```r
+{{package}}::run_pipeline(path = "inst/extdata/forecasting.csv")
+```
+
+Existing files are protected. Your default runner and targets script keep their
+current pipeline selection until you edit them.
+
 ## Optional targets execution
 
 Install `targets` first if needed with `install.packages("targets")`.
@@ -69,3 +88,6 @@ Transforms describe individual steps. Hooks replace evaluation behavior across
 steps and are usually unnecessary. If you need them, use
 `tsflow::use_tsflow_hook("postprocess")` or
 `tsflow::use_tsflow_hook("binary_op")`, then run `roxygen2::roxygenise()` again.
+
+For hook contracts and a worked provenance example, see
+`vignette("package-hooks", package = "tsflow")`.

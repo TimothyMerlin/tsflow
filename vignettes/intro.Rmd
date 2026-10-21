@@ -81,6 +81,10 @@ add_constant <- function(x, value) {
 transforms <- list(scale = scale, add_constant = add_constant)
 ```
 
+Most pipelines need only transforms. Hooks are an advanced package-runtime
+option; see [Writing pipeline packages: advanced hooks](package-hooks.html)
+(`vignette("package-hooks", package = "tsflow")`).
+
 ## Plan The Pipeline
 
 Planning reads the file, validates it, and builds a dependency DAG.

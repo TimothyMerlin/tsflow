@@ -143,6 +143,35 @@ mypipeline::run_pipeline()
 mypipeline::run_pipeline(inputs = my_inputs)
 ```
 
+## Add another pipeline
+
+Use the scaffolding helper to add a named pipeline to the same package:
+
+```{r}
+tsflow::use_tsflow_pipeline("forecasting")
+# Or choose YAML for a different pipeline:
+tsflow::use_tsflow_pipeline("sources", format = "yaml")
+```
+
+CSV creates `inst/extdata/forecasting.csv` and `forecasting.meta.yml`; YAML
+creates `inst/extdata/sources.yml` with its parameters and outputs in that file.
+Each also gets a validation test under `tests/testthat/`, using the package's
+transform registry. The starter takes an input named `raw` and multiplies it
+by a shared `factor` of 10. Replace those steps with your calculation and extend
+the test with expected values.
+
+Existing files are protected, including another format or sidecar with the same
+name. Adding a pipeline does not change the default runner or `_targets.R`.
+Select its path when running it:
+
+```{r}
+mypipeline::run_pipeline(path = "inst/extdata/forecasting.csv")
+```
+
+From an ordinary project's root, the same helper puts the pipeline files there
+and does not add package tests. Supply the selected path to
+`tsflow::execute_pipeline()` or `tsflow::tar_tsflow()`.
+
 ## Use targets when you want it
 
 Include targets at creation time, or enable it later:
@@ -211,18 +240,9 @@ and the functions into `R/`, tagging the transforms you wish to register.
 
 ## Advanced: evaluation hooks
 
-Most pipelines need only transforms. Hooks change evaluation behavior across
-all steps of a kind, for example to carry custom series metadata.
-
-```{r}
-tsflow::use_tsflow_hook("postprocess")
-# Or, only when you need to replace arithmetic:
-tsflow::use_tsflow_hook("binary_op")
-roxygen2::roxygenise()
-```
-
-`postprocess(result, context)` runs after each transform.
-`binary_op(op, left, right)` replaces arithmetic for `add`, `sub`, `mul`, and
-`div`, including default alignment checks. Its generated stub needs your own
-alignment and metadata handling. Unknown and duplicate hook slots fail while
-documenting, rather than silently choosing one.
+Most pipeline packages need only transforms. If a pipeline author chooses when
+an operation applies, it is a transform; rules that must hold across evaluations
+of a particular kind can use hooks. See
+[Writing pipeline packages: advanced hooks](package-hooks.html)
+(`vignette("package-hooks", package = "tsflow")`) for the hook contracts,
+registry setup, and an executable provenance-preservation example.

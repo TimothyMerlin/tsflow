@@ -1,5 +1,13 @@
 # tsflow (development version)
 
+* New `use_tsflow_pipeline()` adds named CSV or YAML pipelines to packages and
+  ordinary projects, with package registry-validation tests and protection
+  against existing pipeline files and sidecars.
+
+* A new advanced package-hooks vignette explains when to use hooks, their
+  contracts and registry setup, with an executable provenance example and
+  explicit alignment checks. Introductory and runtime docs link to the guide.
+
 * New `create_tsflow_package()` and `use_tsflow()` scaffold pipeline packages
   and analysis projects with runnable examples, setup guidance, and optional
   targets execution. `use_tsflow_transform()` and `use_tsflow_hook()` add

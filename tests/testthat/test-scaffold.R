@@ -134,3 +134,70 @@ test_that("invalid requests and existing stub files are rejected before writing"
   expect_identical(readLines(stub), "# User code")
   expect_error(use_tsflow_transform("foo", withr::local_tempdir()), "DESCRIPTION")
 })
+
+test_that("named project pipelines run in CSV and YAML formats", {
+  dir <- withr::local_tempdir()
+  for (format in c("csv", "yaml")) {
+    name <- paste0("example-", format)
+    created <- use_tsflow_pipeline(name, path = dir, format = format)
+    pipeline <- file.path(dir, paste0(name, if (format == "csv") ".csv" else ".yml"))
+    expect_true(pipeline %in% created)
+    expect_equal(length(created), if (format == "csv") 2L else 1L)
+    result <- execute_pipeline(pipeline, inputs = list(raw = ts(1:4)), progress = FALSE)
+    output <- make.names(paste0(name, "_output"))
+    expect_named(result$outputs, output)
+    expect_equal(result$values[[output]], ts(1:4) * 10)
+    expect_false(dir.exists(file.path(dir, "tests")))
+  }
+})
+
+test_that("named package pipelines coexist and get working registry validation tests", {
+  path <- local_scaffold_package()
+  original <- c("R/run_pipeline.R", "run.R", "inst/extdata/pipeline.csv")
+  before <- tools::md5sum(file.path(path, original))
+  csv_files <- use_tsflow_pipeline("sources", path)
+  yaml_files <- use_tsflow_pipeline("forecasting", path, format = "yaml")
+  expect_length(csv_files, 3L)
+  expect_length(yaml_files, 2L)
+  expect_true(file.exists(file.path(path, "tests/testthat/test-pipeline-sources.R")))
+  expect_true(file.exists(file.path(path, "tests/testthat/test-pipeline-forecasting.R")))
+  expect_identical(tools::md5sum(file.path(path, original)), before)
+  expect_false(file.exists(file.path(path, "_targets.R")))
+  results <- testthat::test_local(path, reporter = "silent")
+  expect_true(all(vapply(results, function(test) all(vapply(test$results, function(result) {
+    inherits(result, "expectation_success")
+  }, logical(1))), logical(1))))
+  # The generated test must use the registry once a custom transform is added.
+  writeLines(c("name,input,step_1", "sources_output,raw,not_registered()"), csv_files[[1L]])
+  expect_error(testthat::test_file(
+    file.path(path, "tests/testthat/test-pipeline-sources.R"),
+    reporter = "silent", stop_on_failure = TRUE
+  ), "Test failures")
+})
+
+test_that("named pipeline conflicts fail before writing any companion files", {
+  path <- local_scaffold_package()
+  existing <- file.path(path, "inst/extdata/sources.yml")
+  writeLines("# Keep my pipeline", existing)
+  expect_error(use_tsflow_pipeline("sources", path), "existing pipeline name")
+  expect_identical(readLines(existing), "# Keep my pipeline")
+  expect_false(file.exists(file.path(path, "inst/extdata/sources.csv")))
+  expect_false(file.exists(file.path(path, "inst/extdata/sources.meta.yml")))
+  expect_false(file.exists(file.path(path, "tests/testthat/test-pipeline-sources.R")))
+  sidecar <- file.path(path, "inst/extdata/other.meta.yaml")
+  writeLines("vars: {}", sidecar)
+  expect_error(use_tsflow_pipeline("other", path, format = "yaml"), "existing pipeline name")
+  expect_false(file.exists(file.path(path, "inst/extdata/other.yml")))
+})
+
+test_that("named pipelines validate names, paths, formats, and package setup", {
+  dir <- withr::local_tempdir()
+  for (name in c("../outside", "a/b", "", "..", "1invalid")) {
+    expect_error(use_tsflow_pipeline(name, dir), "must start with a letter")
+  }
+  expect_error(use_tsflow_pipeline("sources", file.path(dir, "missing")), "existing project")
+  expect_error(use_tsflow_pipeline("sources", dir, format = "json"), "arg.*should be")
+  write.dcf(data.frame(Package = "unconfigured", Version = "0.0.1"), file.path(dir, "DESCRIPTION"))
+  expect_error(use_tsflow_pipeline("sources", dir), "set up the package")
+  expect_false(dir.exists(file.path(dir, "inst")))
+})
