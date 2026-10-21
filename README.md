@@ -10,6 +10,25 @@ The current MVP contract is:
 - YAML is the canonical structured pipeline shape
 - CSV plus a sibling sidecar YAML file is a supported authoring convenience
 
+## Start a Project or Package
+
+Create a complete pipeline package, including an example transform, generated
+registry, tests, and a setup walkthrough:
+
+```r
+tsflow::create_tsflow_package("mypipeline", targets = TRUE)
+```
+
+Or start an ordinary analysis project without a package:
+
+```r
+tsflow::use_tsflow("myanalysis")
+```
+
+Both support direct execution and optional targets execution. See
+`vignette("getting-started", package = "tsflow")` for the first run, adding
+transforms, and enabling targets later.
+
 ## CSV Workflow
 
 The main spreadsheet-style format is:

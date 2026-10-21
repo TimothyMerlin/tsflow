@@ -1,0 +1,3 @@
+name,input,step_1,step_2
+scaled,raw,scale_series(factor = @factor),
+adjusted,scaled,,mul(2)

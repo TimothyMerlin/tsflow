@@ -1,5 +1,13 @@
 # tsflow (development version)
 
+* New `create_tsflow_package()` and `use_tsflow()` scaffold pipeline packages
+  and analysis projects with runnable examples, setup guidance, and optional
+  targets execution. `use_tsflow_transform()` and `use_tsflow_hook()` add
+  documented function and test stubs to packages.
+* New `registry_roclet()` generates explicit package registries from `@tsflow`
+  tags; `package_registry()` resolves tagged transforms and hooks from installed
+  or development package namespaces.
+
 * `tar_tsflow()` and cached `execute_pipeline()` runs now track package versions
   for transforms, hooks, and loaders registered under bare names, so updating
   their packages invalidates the targets that use them.
