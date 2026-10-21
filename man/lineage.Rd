@@ -4,11 +4,14 @@
 \alias{lineage}
 \alias{series_lineage}
 \alias{document_pipeline}
+\alias{print.SeriesLineage}
 \title{Lineage and Methodology Documentation}
 \usage{
 series_lineage(plan, series, transform_descriptions = NULL, result = NULL)
 
 document_pipeline(plan, dir, transform_descriptions = NULL, result = NULL)
+
+\method{print}{SeriesLineage}(x, heading_level = 1L, links = TRUE, ...)
 }
 \arguments{
 \item{plan}{A `PipelinePlan` from [plan_pipeline()], or a `PipelineResult`.
@@ -28,6 +31,17 @@ of each raw series' data (see `result$input_hashes` in
 [evaluate_pipeline()]). Defaults to `plan` when `plan` is itself a result.}
 
 \item{dir}{Directory to write the Markdown files to. Created if needed.}
+
+\item{x}{A `SeriesLineage` from `series_lineage()`.}
+
+\item{heading_level}{Markdown heading level of the series title, from 1 to
+5. Section headings are one level below. Use a higher level to embed the
+page in a larger document, e.g. a vignette chunk with `results = "asis"`.}
+
+\item{links}{Whether series names link to their `<series>.md` pages. Set to
+`FALSE` when those pages are not next to the output.}
+
+\item{...}{Unused.}
 }
 \value{
 `series_lineage()` returns a `SeriesLineage` list with elements
