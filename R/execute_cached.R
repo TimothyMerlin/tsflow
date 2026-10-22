@@ -207,7 +207,8 @@ defining_env <- function(name, envir) {
 }
 
 # Workspace = the global environment or a function frame, not a package or
-# namespace (package code is tracked by version instead).
+# namespace (package code is tracked by version, or by code hash for
+# `load_all()` packages, instead).
 is_workspace_env <- function(envir) {
   !isNamespace(envir) &&
     !identical(envir, baseenv()) &&

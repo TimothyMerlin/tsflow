@@ -64,7 +64,8 @@ With `store`, each pipeline file gets its own subfolder of `store`
   (named after the file), so pipelines that share series names don't
   overwrite each other's results. Changes to transforms and to the
   workspace functions and values they use are detected; changes inside
-  packages are detected through the package version. The result has the
+  packages are detected through the package version, and for packages
+  loaded with `pkgload::load_all()` also through their code. The result has the
   usual structure plus `rebuilt`, the series recomputed in this run, and
   `store`, the subfolder used. Two R processes must not use the same
   `store` at the same time. Requires the `targets` and `codetools`
