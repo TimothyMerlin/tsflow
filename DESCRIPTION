@@ -23,6 +23,7 @@ Suggests:
     pkgload,
     rmarkdown,
     roxygen2,
+    secretbase,
     targets,
     tempdisagg,
     testthat (>= 3.0.0),

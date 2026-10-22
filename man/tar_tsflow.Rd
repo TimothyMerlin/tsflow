@@ -68,8 +68,13 @@ With `granularity = "step"`, the last step of a series is named
     it refers to the whole registry, so any change to it reruns all steps;
     a message lists the affected transforms.
 
-  Namespaced transforms such as `tempdisagg::td` record the package
-  version, so updating the package reruns the steps that use it.
+  Namespaced transforms such as `tempdisagg::td`, and registered transforms,
+  hooks and loaders defined in a package, record the package version, so
+  updating the package reruns the steps that use it. For a package loaded
+  with `pkgload::load_all()`, they also record a hash of all code in its
+  namespace, so any edit to its R code reruns the steps that use the
+  package, without a version bump. Edits to its compiled code or to data in
+  `data/` still need a version bump.
 
   A raw series that neither `inputs` nor a loader provides (or whose loader
   returns `NULL`) is a missing input. Its target and every target that

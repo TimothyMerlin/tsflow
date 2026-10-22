@@ -228,3 +228,69 @@ targets::tar_test("package versions follow registered functions to their users",
       both_versions)
   }
 })
+
+test_that("load_all packages record a hash of their code with the version", {
+  skip_if_not_installed("pkgload")
+  write_code <- local_dev_package()
+  write_code()
+  versions <- function() {
+    tar_package_versions(character(), list(getExportedValue("tsflowdevfixture", "transform")))
+  }
+  first <- versions()
+  expect_match(first[["tsflowdevfixture"]], "^0\\.0\\.1\\+[0-9a-f]+$")
+  expect_identical(tar_package_versions("tsflowdevfixture::transform"), first)
+
+  write_code()
+  expect_identical(versions(), first)
+  write_code(multiplier = 3)
+  expect_false(identical(versions(), first))
+})
+
+test_that("code hashes ignore byte-compilation of closures inside objects", {
+  holders <- function(fn) {
+    list(
+      structure(list(fn = fn), class = "holder"),
+      structure(1, validity = fn)
+    )
+  }
+  # Compare hashes, as identical() ignores bytecode.
+  hash <- function(fn) secretbase::sha3(tar_code_value(holders(fn), new.env()))
+  fn <- function(x) x + 1
+  expect_identical(hash(fn), hash(compiler::cmpfun(fn)))
+  expect_false(identical(hash(fn), hash(function(x) x + 2)))
+})
+
+targets::tar_test("edits to load_all packages rerun the steps that use them", {
+  skip_if_not_installed("pkgload")
+  write_code <- local_dev_package()
+  write_code()
+  writeLines(c(
+    "series:",
+    "  - name: raw_a", "    source: {type: injected}",
+    "  - name: namespaced", "    expr: 'tsflowdevfixture::transform(raw_a)'",
+    "  - name: registered", "    expr: 'fixture(raw_a)'",
+    "  - name: other", "    expr: 'raw_a * 2'"
+  ), "pipeline.yml")
+
+  for (granularity in c("step", "series")) {
+    unlink("_targets", recursive = TRUE)
+    write_code()
+    write_targets_script(c(
+      "list(tar_target(tsflow_inputs, list(raw_a = ts(10))),",
+      "  tsflow::tar_tsflow('pipeline.yml', transforms = list(fixture = tsflowdevfixture::transform),",
+      sprintf("    granularity = '%s'))", granularity)
+    ))
+    tar_make_quiet()
+    expect_equal(as.numeric(targets::tar_read(namespaced)), 20)
+    expect_equal(as.numeric(targets::tar_read(registered)), 20)
+
+    write_code()
+    expect_identical(targets::tar_outdated(callr_function = NULL), character())
+
+    write_code(multiplier = 3)
+    expect_setequal(targets::tar_outdated(callr_function = NULL), c("namespaced", "registered"))
+    tar_make_quiet()
+    expect_equal(as.numeric(targets::tar_read(namespaced)), 30)
+    expect_equal(as.numeric(targets::tar_read(registered)), 30)
+  }
+})

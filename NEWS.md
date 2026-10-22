@@ -1,5 +1,9 @@
 # tsflow (development version)
 
+* `tar_tsflow()` and `execute_pipeline(store = ...)` record a hash of the code
+  of packages loaded with `pkgload::load_all()`, so editing a development
+  package reruns the steps that use it without a version bump (#44).
+
 * New `use_tsflow_pipeline()` adds named CSV or YAML pipelines to packages and
   ordinary projects, with package registry-validation tests and protection
   against existing pipeline files and sidecars.

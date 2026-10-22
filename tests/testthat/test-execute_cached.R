@@ -53,6 +53,35 @@ test_that("execute_pipeline(store) caches and only reruns what changed", {
   expect_setequal(run()$rebuilt, c("grown", "other"))
 })
 
+test_that("execute_pipeline(store) reruns steps using an edited load_all package", {
+  skip_if_not_installed("targets")
+  skip_if_not_installed("codetools")
+  skip_if_not_installed("pkgload")
+  dir <- withr::local_tempdir()
+  path <- file.path(dir, "p.yml")
+  store <- file.path(dir, "cache")
+  writeLines(c(
+    "series:",
+    "  - name: raw_a", "    source: {type: injected}",
+    "  - name: fixed", "    expr: 'fixture(raw_a)'",
+    "  - name: other", "    expr: 'raw_a * 2'"
+  ), path)
+  write_code <- local_dev_package()
+  run <- function() {
+    execute_pipeline(path, list(raw_a = ts(10)), progress = FALSE, store = store,
+                     transforms = list(fixture = getExportedValue("tsflowdevfixture", "transform")))
+  }
+
+  write_code()
+  expect_setequal(run()$rebuilt, c("fixed", "other"))
+  write_code()
+  expect_length(run()$rebuilt, 0L)
+  write_code(multiplier = 3)
+  result <- run()
+  expect_equal(result$rebuilt, "fixed")
+  expect_equal(as.numeric(result$values$fixed), 30)
+})
+
 test_that("tsflow.store option turns caching on and store = NULL turns it off", {
   skip_if_not_installed("targets")
   skip_if_not_installed("codetools")

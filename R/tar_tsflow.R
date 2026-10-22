@@ -42,8 +42,13 @@
 #'     it refers to the whole registry, so any change to it reruns all steps;
 #'     a message lists the affected transforms.
 #'
-#'   Namespaced transforms such as `tempdisagg::td` record the package
-#'   version, so updating the package reruns the steps that use it.
+#'   Namespaced transforms such as `tempdisagg::td`, and registered transforms,
+#'   hooks and loaders defined in a package, record the package version, so
+#'   updating the package reruns the steps that use it. For a package loaded
+#'   with `pkgload::load_all()`, they also record a hash of all code in its
+#'   namespace, so any edit to its R code reruns the steps that use the
+#'   package, without a version bump. Edits to its compiled code or to data in
+#'   `data/` still need a version bump.
 #'
 #'   A raw series that neither `inputs` nor a loader provides (or whose loader
 #'   returns `NULL`) is a missing input. Its target and every target that
@@ -91,21 +96,23 @@ tar_tsflow <- function(path,
   hook_refs <- tar_list_refs(hooks, substitute(hooks))
   loader_refs <- tar_list_refs(loaders, substitute(loaders))
   series_map <- stats::setNames(pipeline$series, vapply(pipeline$series, `[[`, character(1), "name"))
+  # Hash each development package once, not once per target.
+  fingerprints <- new.env(parent = emptyenv())
 
   targets_list <- lapply(nodes, function(name) {
     series <- series_map[[name]]
     if (identical(series$kind, "raw")) {
-      return(list(tar_raw_target(name, series$source, inputs, loader_refs, loaders)))
+      return(list(tar_raw_target(name, series$source, inputs, loader_refs, loaders, fingerprints)))
     }
 
     if (identical(granularity, "series")) {
       return(list(targets::tar_target_raw(
         name,
-        tar_series_command(series$expression, transform_refs, hook_refs, transforms, hooks)
+        tar_series_command(series$expression, transform_refs, hook_refs, transforms, hooks, fingerprints)
       )))
     }
 
-    tar_step_targets(name, series$expression, transform_refs, hook_refs, transforms, hooks)
+    tar_step_targets(name, series$expression, transform_refs, hook_refs, transforms, hooks, fingerprints)
   })
 
   unlist(targets_list, recursive = FALSE)
@@ -121,7 +128,8 @@ tsflow_internal <- function(fn) {
 # A raw series target: from `inputs` if present, else its loader. Loaders
 # read external data targets can't see, so those targets always rerun;
 # downstream steps still only rerun when the loaded value changed.
-tar_raw_target <- function(name, source, inputs, loader_refs, loaders = list()) {
+tar_raw_target <- function(name, source, inputs, loader_refs, loaders = list(),
+                           fingerprints = new.env(parent = emptyenv())) {
   loader_ref <- loader_refs[[source$type]]
   command <- bquote(.(tsflow_internal("tar_tsflow_raw"))(
     inputs = .(if (is.null(inputs)) NULL else as.name(inputs)),
@@ -129,7 +137,7 @@ tar_raw_target <- function(name, source, inputs, loader_refs, loaders = list()) 
     source = .(source$config),
     type = .(source$type),
     loader = .(loader_ref),
-    packages = .(tar_package_versions(character(), loaders[source$type]))
+    packages = .(tar_package_versions(character(), loaders[source$type], fingerprints))
   ))
   cue <- if (is.null(loader_ref)) targets::tar_cue() else targets::tar_cue(mode = "always")
   targets::tar_target_raw(name, command, cue = cue)
@@ -194,7 +202,8 @@ tar_tsflow_step <- function(step, input, values, transforms, hooks, packages = N
   )
 }
 
-tar_step_targets <- function(name, expression, transform_refs, hook_refs, transforms = list(), hooks = list()) {
+tar_step_targets <- function(name, expression, transform_refs, hook_refs, transforms = list(), hooks = list(),
+                             fingerprints = new.env(parent = emptyenv())) {
   decomposition <- decompose_node_expression(expression)
   steps <- decomposition$steps
 
@@ -231,14 +240,15 @@ tar_step_targets <- function(name, expression, transform_refs, hook_refs, transf
       packages = .(tar_package_versions(used, c(
         transforms[intersect(used, names(transforms))],
         hooks[intersect(hooks_needed, names(hooks))]
-      )))
+      ), fingerprints))
     ))
     previous <<- step_names[[idx]]
     targets::tar_target_raw(step_names[[idx]], command)
   })
 }
 
-tar_series_command <- function(expression, transform_refs, hook_refs, transforms = list(), hooks = list()) {
+tar_series_command <- function(expression, transform_refs, hook_refs, transforms = list(), hooks = list(),
+                               fingerprints = new.env(parent = emptyenv())) {
   used <- collect_transform_names(expression)
   bquote(.(tsflow_internal("tar_tsflow_series"))(
     expression = .(expression),
@@ -247,7 +257,7 @@ tar_series_command <- function(expression, transform_refs, hook_refs, transforms
     hooks = .(tar_ref_list(hook_refs, names(hook_refs))),
     packages = .(tar_package_versions(used, c(
       transforms[intersect(used, names(transforms))], hooks
-    )))
+    ), fingerprints))
   ))
 }
 
@@ -315,7 +325,9 @@ tar_list_refs <- function(entries, entries_expr) {
 
 # Package versions for namespaced transforms and registered functions, embedded
 # in commands so package updates rerun the targets that use them.
-tar_package_versions <- function(transform_names, functions = list()) {
+# `fingerprints` caches code hashes of development packages by name.
+tar_package_versions <- function(transform_names, functions = list(),
+                                 fingerprints = new.env(parent = emptyenv())) {
   packages <- unique(sub("::.*$", "", grep("::", transform_names, fixed = TRUE, value = TRUE)))
   registered_packages <- vapply(functions, function(fn) {
     envir <- environment(fn)
@@ -326,7 +338,83 @@ tar_package_versions <- function(transform_names, functions = list()) {
     return(NULL)
   }
   stats::setNames(
-    vapply(packages, function(pkg) as.character(utils::packageVersion(pkg)), character(1)),
+    vapply(packages, tar_package_version, character(1), fingerprints = fingerprints),
     packages
+  )
+}
+
+# The version of `pkg`, plus a hash of its code if it was loaded with
+# `pkgload::load_all()` (which marks the namespace with `.__DEVTOOLS__`), as
+# its code then changes without a version bump.
+tar_package_version <- function(pkg, fingerprints) {
+  version <- as.character(utils::packageVersion(pkg))
+  if (!isNamespaceLoaded(pkg)) {
+    return(version)
+  }
+  namespace <- asNamespace(pkg)
+  if (!exists(".__DEVTOOLS__", envir = namespace, inherits = FALSE)) {
+    return(version)
+  }
+  if (is.null(fingerprints[[pkg]])) {
+    fingerprints[[pkg]] <- tar_namespace_hash(namespace)
+  }
+  paste0(version, "+", fingerprints[[pkg]])
+}
+
+# Hash of all bindings in a namespace. Hashing the whole namespace rather than
+# what a function calls also covers S3 methods, helpers built by function
+# factories and names looked up dynamically, at the cost of rerunning on any
+# edit to the package.
+tar_namespace_hash <- function(namespace) {
+  names <- setdiff(
+    sort(names(namespace), method = "radix"),
+    c(".__DEVTOOLS__", ".__NAMESPACE__.", ".__S3MethodsTable__.")
+  )
+  values <- mget(names, envir = namespace)
+  secretbase::sha3(lapply(values, tar_code_value, namespace = namespace))
+}
+
+# `value` reduced to what determines its behavior, for hashing. Functions are
+# compared by code rather than serialized as closures, because R byte-compiles
+# closures in place and source references hold file metadata. Environments in
+# bindings (S4 method tables, R6 classes) contribute only the functions and
+# environments they hold, as other values there are often mutable state;
+# function environments contribute all their values, as for function factories.
+tar_code_value <- function(value, namespace, seen = list(), state = FALSE) {
+  if (is.primitive(value)) {
+    return(value)
+  }
+  if (is.function(value)) {
+    value <- utils::removeSource(value)
+    return(list(
+      formals(value),
+      body(value),
+      tar_code_value(environment(value), namespace, seen, state = TRUE)
+    ))
+  }
+  if (is.environment(value)) {
+    if (identical(value, namespace) || isNamespace(value) || identical(value, globalenv()) ||
+        identical(value, baseenv()) || identical(value, emptyenv()) ||
+        any(vapply(seen, identical, logical(1), value))) {
+      return(environmentName(value))
+    }
+    seen <- c(seen, value)
+    entries <- mget(sort(names(value), method = "radix"), envir = value)
+    if (!state) {
+      entries <- Filter(function(entry) is.function(entry) || is.environment(entry), entries)
+    }
+    return(lapply(entries, tar_code_value, namespace = namespace, seen = seen))
+  }
+  # Recurse into list elements and attributes (which hold S4 slots, as in class
+  # definitions), so closures inside them are compared by code.
+  attrs <- attributes(value)
+  if (!is.list(value) && is.null(attrs)) {
+    return(value)
+  }
+  attributes(value) <- NULL
+  list(
+    if (is.list(value)) lapply(value, tar_code_value, namespace = namespace, seen = seen) else value,
+    lapply(attrs[sort(as.character(names(attrs)), method = "radix")], tar_code_value,
+           namespace = namespace, seen = seen)
   )
 }
