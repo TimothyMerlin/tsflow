@@ -1,5 +1,9 @@
 # tsflow (development version)
 
+* CSV pipelines can use loaders: a `source` entry in the `.meta.yml` sidecar
+  sets the source of every raw series in the CSV. Without it, raw series stay
+  `injected` (#38).
+
 * `tar_tsflow()` and `execute_pipeline(store = ...)` record a hash of the code
   of packages loaded with `pkgload::load_all()`, so editing a development
   package reruns the steps that use it without a version bump (#44).

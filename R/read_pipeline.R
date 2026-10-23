@@ -21,6 +21,11 @@
 #' If a sibling `.meta.yml` or `.meta.yaml` file exists, `read_pipeline()`
 #' merges its `vars`, `outputs`, and `metadata` into the parsed pipeline.
 #'
+#' Raw series of a CSV pipeline are the `input` and step references that no
+#' row defines. They get the sidecar's `source` entry, for example
+#' `source: {type: db, schema: vja}`, so a loader for that type can fetch them.
+#' Without one, their source type is `injected` and they come from `inputs`.
+#'
 #' @param path Path to a pipeline file. YAML and CSV are supported.
 #'
 #' @return An unnormalized R list in the pipeline schema expected by
@@ -31,14 +36,21 @@ read_pipeline <- function(path) {
     fail("`path` must be a single string")
   }
 
+  sidecar <- read_pipeline_sidecar(path)
+  source <- sidecar$source
+  sidecar$source <- NULL
+
   extension <- tolower(tools::file_ext(path))
   parsed <- if (identical(extension, "csv")) {
-    read_pipeline_csv(path)
+    read_pipeline_csv(path, source = source %||% list(type = "injected"))
   } else {
+    if (!is.null(source)) {
+      fail("pipeline sidecar `source` only applies to CSV pipelines; give YAML raw series their own `source`")
+    }
     yaml::read_yaml(path)
   }
 
-  merge_pipeline_sidecar(parsed, path)
+  merge_pipeline_sidecar(parsed, sidecar)
 }
 
 #' Write a Pipeline Definition
@@ -67,7 +79,7 @@ write_pipeline <- function(x, path) {
   invisible(path)
 }
 
-read_pipeline_csv <- function(path) {
+read_pipeline_csv <- function(path, source = list(type = "injected")) {
   if (!is_scalar_string(path)) {
     fail("`path` must be a single string")
   }
@@ -131,23 +143,24 @@ read_pipeline_csv <- function(path) {
   raw_series <- lapply(raw_refs, function(name) {
     list(
       name = name,
-      source = list(type = "injected")
+      source = source
     )
   })
 
   list(series = c(raw_series, derived_series))
 }
 
-merge_pipeline_sidecar <- function(parsed, path) {
+# The sibling sidecar as a named list, or NULL when there is none.
+read_pipeline_sidecar <- function(path) {
   sidecar_path <- find_pipeline_sidecar(path)
   if (is.null(sidecar_path)) {
-    return(parsed)
+    return(NULL)
   }
 
   sidecar <- yaml::read_yaml(sidecar_path)
   assert_named_list(sidecar, "pipeline sidecar")
 
-  allowed_keys <- c("vars", "outputs", "metadata")
+  allowed_keys <- c("vars", "outputs", "metadata", "source")
   unknown_keys <- setdiff(names(sidecar), allowed_keys)
   if (length(unknown_keys) > 0L) {
     fail(sprintf(
@@ -156,6 +169,15 @@ merge_pipeline_sidecar <- function(parsed, path) {
     ))
   }
 
+  if (!is.null(sidecar$source) &&
+      (!is.list(sidecar$source) || is.null(names(sidecar$source)) || !is_scalar_string(sidecar$source$type))) {
+    fail("pipeline sidecar `source` must be a mapping with a `type`, e.g. `source: {type: db}`")
+  }
+
+  sidecar
+}
+
+merge_pipeline_sidecar <- function(parsed, sidecar) {
   for (key in names(sidecar)) {
     if (!is.null(parsed[[key]])) {
       fail(sprintf("pipeline and sidecar both define `%s`", key))
