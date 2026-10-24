@@ -116,6 +116,73 @@ test_that("read_pipeline preserves vector vars from the sidecar", {
   expect_equal(call$kwargs$end$var, "cutoff")
 })
 
+test_that("read_pipeline gives CSV raw series the sidecar source", {
+  dir <- tempfile()
+  dir.create(dir)
+  path <- file.path(dir, "pipeline.csv")
+
+  writeLines(
+    c(
+      "name,input,step_1",
+      "derived_a,raw_a,div(raw_b)",
+      "derived_b,derived_a,mul(2)"
+    ),
+    con = path
+  )
+  writeLines(
+    c(
+      "source:",
+      "  type: db",
+      "  schema: vja"
+    ),
+    con = file.path(dir, "pipeline.meta.yml")
+  )
+
+  parsed <- read_pipeline(path)
+
+  expect_null(parsed$source)
+  expect_equal(parsed$series[[1]]$source, list(type = "db", schema = "vja"))
+  expect_equal(parsed$series[[2]]$source, list(type = "db", schema = "vja"))
+  expect_null(parsed$series[[3]]$source)
+
+  loaded <- list()
+  loaders <- list(db = function(source, name) {
+    loaded[[name]] <<- source
+    stats::ts(if (identical(name, "raw_a")) c(4, 6) else c(2, 3), start = 2020)
+  })
+  result <- execute_pipeline(path, loaders = loaders)
+
+  expect_equal(loaded$raw_a, list(schema = "vja"))
+  expect_equal(as.numeric(result$values$derived_b), c(4, 4))
+})
+
+test_that("read_pipeline keeps CSV raw series injected without a sidecar source", {
+  dir <- tempfile()
+  dir.create(dir)
+  path <- file.path(dir, "pipeline.csv")
+
+  writeLines(c("name,input", "derived_a,raw_a"), con = path)
+  writeLines(c("vars:", "  factor: 1"), con = file.path(dir, "pipeline.meta.yml"))
+
+  expect_equal(read_pipeline(path)$series[[1]]$source$type, "injected")
+})
+
+test_that("read_pipeline rejects invalid or misplaced sidecar sources", {
+  dir <- tempfile()
+  dir.create(dir)
+  csv_path <- file.path(dir, "pipeline.csv")
+  writeLines(c("name,input", "derived_a,raw_a"), con = csv_path)
+  writeLines("source: db", con = file.path(dir, "pipeline.meta.yml"))
+
+  expect_error(read_pipeline(csv_path), "sidecar `source` must be a mapping with a `type`")
+
+  yaml_path <- file.path(dir, "other.yml")
+  writeLines(c("series:", "  - name: raw_a", "    source: {type: injected}"), con = yaml_path)
+  writeLines(c("source:", "  type: db"), con = file.path(dir, "other.meta.yml"))
+
+  expect_error(read_pipeline(yaml_path), "only applies to CSV pipelines")
+})
+
 test_that("read_pipeline reads wide CSV mappings into pipeline shape", {
   path <- tempfile(fileext = ".csv")
   writeLines(

@@ -24,6 +24,7 @@ This vignette shows the `tsflow` CSV workflow end to end:
 - inspect it with `plan_pipeline()`
 - inspect the dependency DAG
 - execute it with injected `ts` inputs
+- load raw series with a loader declared in the sidecar
 
 ## Example Pipeline
 
@@ -139,6 +140,50 @@ constr_nom_result$plan$order
 names(constr_nom_result$values)
 constr_nom_result$outputs$construction.nominal.quarterly
 ```
+
+## Load Raw Series With A Loader
+
+Instead of passing every raw series through `inputs`, the sidecar can say
+where they come from. A `source` entry gives every raw series of the CSV that
+source, and a loader for its `type` fetches them by name. Here a copy of the
+example gets `source: {type: db, schema: vja}`:
+
+```{r, eval = has_runtime_pkgs}
+db_dir <- file.path(tempdir(), "gdp-db")
+dir.create(db_dir, showWarnings = FALSE)
+db_path <- file.path(db_dir, "gdp_construction.csv")
+file.copy(example_path, db_path, overwrite = TRUE)
+writeLines(
+    c(readLines(meta_path), "source:", "  type: db", "  schema: vja"),
+    file.path(db_dir, "gdp_construction.meta.yml")
+)
+
+read_pipeline(db_path)$series[[1]]$source
+```
+
+The loader is called with the `source` entry without `type`, and the series
+name, which is the key from the CSV's `input` column. This one reads from the
+packaged dataset as a stand-in for a database:
+
+```{r, eval = has_runtime_pkgs}
+loaders <- list(
+    db = function(source, name) {
+        message("loading ", name, " from ", source$schema)
+        gdp_construction_inputs[[name]]
+    }
+)
+
+db_result <- execute_pipeline(
+    path = db_path,
+    loaders = loaders,
+    transforms = transforms
+)
+
+all.equal(db_result$outputs, result$outputs)
+```
+
+Without a sidecar `source`, raw series are `injected` and must be given in
+`inputs`. A series in `inputs` is always used instead of its loader.
 
 To run steps in parallel, or to keep results between sessions, use
 `tar_tsflow()` with `targets`; see the README section "Running With targets".

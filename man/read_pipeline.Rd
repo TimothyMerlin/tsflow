@@ -35,4 +35,9 @@ can be:
 
 If a sibling `.meta.yml` or `.meta.yaml` file exists, `read_pipeline()`
 merges its `vars`, `outputs`, and `metadata` into the parsed pipeline.
+
+Raw series of a CSV pipeline are the `input` and step references that no
+row defines. They get the sidecar's `source` entry, for example
+`source: {type: db, schema: vja}`, so a loader for that type can fetch them.
+Without one, their source type is `injected` and they come from `inputs`.
 }

@@ -147,6 +147,20 @@ loader that throws an error is a failure like any other step.
 `plan_pipeline(loaders = ...)$needs_inputs` lists the raw series without a
 loader.
 
+In a CSV pipeline, raw series are the inputs no row defines. The sidecar's
+`source` entry gives all of them a source, so their `input` cells can hold the
+keys a loader understands:
+
+```yaml
+# pipeline.meta.yml
+source:
+  type: db
+  schema: vja
+```
+
+Without a sidecar `source`, CSV raw series are `injected` and come from
+`inputs`.
+
 ## Caching Results
 
 To keep results between runs and recompute only what changed, give
